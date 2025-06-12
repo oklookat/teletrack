@@ -6,6 +6,7 @@ import (
 	"os/signal"
 
 	"github.com/oklookat/teletrack/config"
+	"github.com/oklookat/teletrack/module"
 	"github.com/oklookat/teletrack/spotify"
 	"github.com/oklookat/teletrack/telegram"
 )
@@ -16,17 +17,18 @@ func main() {
 
 	chk(config.Boot())
 
+	// Spotify.
 	if config.C.Spotify.Authorize {
 		chk(authorizeSpotify(ctx))
 		println("Done.")
 		os.Exit(0)
 	}
-
 	spotifyCl := spotify.GetClient(config.C.Spotify.RedirectURI, config.C.Spotify.ClientID, config.C.Spotify.ClientSecret, config.C.Spotify.Token)
-	spotify.GetCurrentPlaying(ctx, spotifyCl)
 
-	telegram.Boot(ctx, config.C.Telegram, config.C.LastFm, config.C.Spotify)
-
+	// Bot.
+	telegram.Boot(ctx, config.C.Telegram, []telegram.Module{
+		module.NewSpotifyPlayer(spotifyCl),
+	})
 	for {
 		<-ctx.Done()
 		break

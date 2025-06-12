@@ -3,6 +3,7 @@ package lastfm
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 )
 
 // lang (iso639-2) - https://www.loc.gov/standards/iso639-2/php/code_list.php
@@ -20,7 +21,10 @@ func (c Client) ArtistGetInfo(artistName, lang string) (*ArtistInfo, error) {
 	query.Set("format", "json")
 	apiURL.RawQuery = query.Encode()
 
-	resp, err := http.Get(apiURL.String())
+	hClient := http.DefaultClient
+	hClient.Timeout = 5 * time.Second
+
+	resp, err := hClient.Get(apiURL.String())
 	if err != nil {
 		return nil, err
 	}

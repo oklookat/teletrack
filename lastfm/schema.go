@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 type ApiError struct {
@@ -147,11 +148,7 @@ func (a ArtistInfo) BioContentWithoutLinks() string {
 }
 
 func cleanAllLinks(text string) string {
-	// Регулярное выражение для поиска ссылок
 	hrefRe := regexp.MustCompile(`<a\s+href="[^"]+">.*?</a>`)
-
-	// Удаляем все совпадения ссылок
 	cleanedText := hrefRe.ReplaceAllString(text, "")
-
-	return cleanedText
+	return strings.TrimSpace(cleanedText)
 }
