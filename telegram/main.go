@@ -2,7 +2,6 @@ package telegram
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -15,10 +14,11 @@ import (
 var (
 	_readyToHandle bool
 	_tgCfg         *config.Telegram
+	_bot           *bot.Bot
 )
 
 type Module interface {
-	Handle(ctx context.Context, b *bot.Bot, onError func(error) error)
+	Handle(ctx context.Context, b *bot.Bot)
 }
 
 func Boot(ctx context.Context, tgCfg *config.Telegram, modules []Module) error {
@@ -36,15 +36,10 @@ func Boot(ctx context.Context, tgCfg *config.Telegram, modules []Module) error {
 	go func() {
 		b.Start(ctx)
 	}()
+	_bot = b
 
 	for i := range modules {
-		modules[i].Handle(ctx, b, func(err error) error {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return err
-			}
-			handleError(ctx, b, err)
-			return nil
-		})
+		modules[i].Handle(ctx, b)
 	}
 
 	return err
@@ -93,8 +88,8 @@ func handleInit(ctx context.Context, b *bot.Bot, update *models.Update) {
 	}
 }
 
-func handleError(ctx context.Context, b *bot.Bot, err error) error {
-	b.SendMessage(ctx, &bot.SendMessageParams{
+func HandleError(ctx context.Context, err error) error {
+	_bot.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: _tgCfg.ServiceChatID,
 		Text:   fmt.Sprintf("Error: %s", err.Error()),
 	})

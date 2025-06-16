@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/signal"
 
@@ -27,7 +28,13 @@ func main() {
 
 	// Bot.
 	telegram.Boot(ctx, config.C.Telegram, []telegram.Module{
-		module.NewSpotifyPlayer(spotifyCl),
+		module.NewSpotifyPlayer(spotifyCl, func(err error) error {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
+			telegram.HandleError(ctx, err)
+			return nil
+		}),
 	})
 	for {
 		<-ctx.Done()

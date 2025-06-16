@@ -16,6 +16,7 @@ type CurrentPlaying struct {
 	DurationMs int
 	Link       string
 	CoverURL   *string
+	Playing    bool
 }
 
 func GetCurrentPlaying(ctx context.Context, cl *spotify.Client) (*CurrentPlaying, error) {
@@ -51,6 +52,7 @@ func GetCurrentPlaying(ctx context.Context, cl *spotify.Client) (*CurrentPlaying
 		ProgressMs: int(curPlay.Progress),
 		Link:       spotifyLink,
 		CoverURL:   &coverURL,
+		Playing:    curPlay.Playing,
 	}
 	if len(artistsNames) > 0 {
 		curPlaying.Artist = artistsNames[0]

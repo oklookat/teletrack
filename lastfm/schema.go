@@ -94,6 +94,67 @@ type UserGetRecentTracksResponse struct {
 	} `json:"recenttracks"`
 }
 
+type UserGetTopTracksResponse struct {
+	Toptracks struct {
+		Track []struct {
+			Streamable struct {
+				Fulltrack string `json:"fulltrack"`
+				Text      string `json:"#text"`
+			} `json:"streamable"`
+			Mbid  string `json:"mbid"`
+			Name  string `json:"name"`
+			Image []struct {
+				Size string `json:"size"`
+				Text string `json:"#text"`
+			} `json:"image"`
+			Artist struct {
+				URL  string `json:"url"`
+				Name string `json:"name"`
+				Mbid string `json:"mbid"`
+			} `json:"artist"`
+			URL      string `json:"url"`
+			Duration string `json:"duration"`
+			Attr     struct {
+				Rank string `json:"rank"`
+			} `json:"@attr"`
+			Playcount string `json:"playcount"`
+		} `json:"track"`
+		Attr struct {
+			User       string `json:"user"`
+			TotalPages string `json:"totalPages"`
+			Page       string `json:"page"`
+			PerPage    string `json:"perPage"`
+			Total      string `json:"total"`
+		} `json:"@attr"`
+	} `json:"toptracks"`
+}
+
+type UserGetTopArtistsResponse struct {
+	Topartists struct {
+		Artist []struct {
+			Streamable string `json:"streamable"`
+			Image      []struct {
+				Size string `json:"size"`
+				Text string `json:"#text"`
+			} `json:"image"`
+			Mbid      string `json:"mbid"`
+			URL       string `json:"url"`
+			Playcount string `json:"playcount"`
+			Attr      struct {
+				Rank string `json:"rank"`
+			} `json:"@attr"`
+			Name string `json:"name"`
+		} `json:"artist"`
+		Attr struct {
+			User       string `json:"user"`
+			TotalPages string `json:"totalPages"`
+			Page       string `json:"page"`
+			PerPage    string `json:"perPage"`
+			Total      string `json:"total"`
+		} `json:"@attr"`
+	} `json:"topartists"`
+}
+
 type ArtistInfo struct {
 	Artist struct {
 		Name  string `json:"name"`

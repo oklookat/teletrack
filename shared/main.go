@@ -12,6 +12,29 @@ import (
 	"github.com/go-telegram/bot"
 )
 
+func TypeToPtr[T comparable](v T) *T {
+	return &v
+}
+
+func FormatRaz(nd string) string {
+	n, err := strconv.Atoi(nd)
+	if err != nil {
+		return nd
+	}
+
+	lastDigit := n % 10
+	lastTwoDigits := n % 100
+
+	switch {
+	case lastDigit == 1 && lastTwoDigits != 11:
+		return fmt.Sprintf("%d раз", n)
+	case (lastDigit >= 2 && lastDigit <= 4) && !(lastTwoDigits >= 12 && lastTwoDigits <= 14):
+		return fmt.Sprintf("%d раза", n)
+	default:
+		return fmt.Sprintf("%d раз", n)
+	}
+}
+
 var _emoticonsUTF = []string{
 	"͡° ͜ʖ ͡°",
 	"ఠൠఠ )ﾉ",
@@ -160,11 +183,15 @@ func TgLink(description, link string) string {
 }
 
 func TimeToRu(t time.Time) string {
-	return t.Format("15:04 02.01.2006") + fmt.Sprintf(" (%s)", GetTimeZone())
+	location, _ := time.LoadLocation("Europe/Moscow")
+	tInLocation := t.In(location)
+	return tInLocation.Format("15:04 02.01.2006") + fmt.Sprintf(" (%s)", GetTimeZone())
 }
 
 func TimeToRuWithSeconds(t time.Time) string {
-	return t.Format("15:04:05 02.01.2006") + fmt.Sprintf(" (%s)", GetTimeZone())
+	location, _ := time.LoadLocation("Europe/Moscow")
+	tInLocation := t.In(location)
+	return tInLocation.Format("15:04:05 02.01.2006") + " (MSK)"
 }
 
 func GetTimeZone() string {
