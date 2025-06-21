@@ -1,4 +1,4 @@
-package spotify
+package spoty
 
 import (
 	"context"
@@ -17,6 +17,8 @@ type CurrentPlaying struct {
 	Link       string
 	CoverURL   *string
 	Playing    bool
+
+	FullTrack *spotify.FullTrack
 }
 
 func GetCurrentPlaying(ctx context.Context, cl *spotify.Client) (*CurrentPlaying, error) {
@@ -27,6 +29,7 @@ func GetCurrentPlaying(ctx context.Context, cl *spotify.Client) (*CurrentPlaying
 	if curPlay == nil || curPlay.Item == nil || curPlay.Item.ExternalURLs == nil {
 		return nil, nil
 	}
+
 	spotifyLink, ok := curPlay.Item.ExternalURLs["spotify"]
 	if !ok {
 		return nil, nil
@@ -53,6 +56,7 @@ func GetCurrentPlaying(ctx context.Context, cl *spotify.Client) (*CurrentPlaying
 		Link:       spotifyLink,
 		CoverURL:   &coverURL,
 		Playing:    curPlay.Playing,
+		FullTrack:  curPlay.Item,
 	}
 	if len(artistsNames) > 0 {
 		curPlaying.Artist = artistsNames[0]

@@ -8,7 +8,7 @@ import (
 
 	"github.com/oklookat/teletrack/config"
 	"github.com/oklookat/teletrack/module"
-	"github.com/oklookat/teletrack/spotify"
+	"github.com/oklookat/teletrack/spoty"
 	"github.com/oklookat/teletrack/telegram"
 )
 
@@ -24,7 +24,7 @@ func main() {
 		println("Done.")
 		os.Exit(0)
 	}
-	spotifyCl := spotify.GetClient(config.C.Spotify.RedirectURI, config.C.Spotify.ClientID, config.C.Spotify.ClientSecret, config.C.Spotify.Token)
+	spotifyCl := spoty.GetClient(config.C.Spotify.RedirectURI, config.C.Spotify.ClientID, config.C.Spotify.ClientSecret, config.C.Spotify.Token)
 
 	// Bot.
 	telegram.Boot(ctx, config.C.Telegram, []telegram.Module{
@@ -51,7 +51,7 @@ func chk(err error) {
 }
 
 func authorizeSpotify(ctx context.Context) error {
-	token, err := spotify.Authorize(ctx, config.C.Spotify, func(url string) {
+	token, err := spoty.Authorize(ctx, config.C.Spotify, func(url string) {
 		println("Go to URL: " + url)
 	})
 	if err != nil {

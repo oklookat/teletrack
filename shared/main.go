@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-telegram/bot"
 )
@@ -248,4 +249,72 @@ func RemoveExtraNewlines(input string) string {
 	// Используем регулярное выражение, чтобы заменить последовательности \n на один \n
 	re := regexp.MustCompile(`\n+`)
 	return re.ReplaceAllString(input, "\n")
+}
+
+// endsWithSentenceTerminator checks if text ends with '.', '!' or '?'
+func EndsWithSentenceTerminator(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
+	}
+	r, _ := utf8.DecodeLastRuneInString(text)
+	return r == '.' || r == '!' || r == '?'
+}
+
+// truncateText limits text by maxSentences and maxLen, appending ellipsis if needed.
+func TruncateText(text string, maxSentences, maxLen int) string {
+	if maxSentences <= 0 || maxLen <= 0 {
+		return "..."
+	}
+
+	sentenceEnds := []int{}
+	for i, r := range text {
+		if r == '.' || r == '!' || r == '?' {
+			sentenceEnds = append(sentenceEnds, i)
+			if len(sentenceEnds) == maxSentences {
+				end := sentenceEnds[len(sentenceEnds)-1] + 1
+				if end > maxLen {
+					return TrimToLength(text, maxLen)
+				}
+				truncated := strings.TrimSpace(text[:end])
+				if EndsWithSentenceTerminator(truncated) {
+					return truncated
+				}
+				return truncated + "..."
+			}
+		}
+	}
+
+	for i := len(sentenceEnds); i > 0; i-- {
+		end := sentenceEnds[i-1] + 1
+		if end <= maxLen {
+			truncated := strings.TrimSpace(text[:end])
+			if EndsWithSentenceTerminator(truncated) {
+				return truncated
+			}
+			return truncated + "..."
+		}
+	}
+
+	if len(text) > maxLen {
+		return TrimToLength(text, maxLen)
+	}
+
+	return text
+}
+
+// trimToLength trims text to maxLen, avoiding cutting words, adding ellipsis if needed
+func TrimToLength(text string, maxLen int) string {
+	if len(text) <= maxLen {
+		return text
+	}
+	truncated := strings.TrimSpace(text[:maxLen])
+	lastSpace := strings.LastIndex(truncated, " ")
+	if lastSpace > 0 {
+		truncated = truncated[:lastSpace]
+	}
+	if EndsWithSentenceTerminator(truncated) {
+		return truncated
+	}
+	return truncated + "..."
 }

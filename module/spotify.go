@@ -11,27 +11,27 @@ import (
 	"github.com/oklookat/teletrack/config"
 	"github.com/oklookat/teletrack/lastfm"
 	"github.com/oklookat/teletrack/shared"
-	"github.com/oklookat/teletrack/spotify"
+	"github.com/oklookat/teletrack/spoty"
 
 	spotifyapi "github.com/zmb3/spotify/v2"
 )
 
 const (
-	_SPOTIFY_RATE_LIMIT_SEC     = 4
-	_SPOTIFY_RATE_LIMIT         = _SPOTIFY_RATE_LIMIT_SEC * time.Second
-	_SPOTIFY_LAST_PROGRESS_IDLE = 3 * (_SPOTIFY_RATE_LIMIT_SEC / 2)
+	spotifyRateLimitSec     = 4
+	spotifyRateLimit        = spotifyRateLimitSec * time.Second
+	spotifyLastProgressIdle = 3 * (spotifyRateLimitSec / 2)
 )
 
 type SpotifyPlayerHooks interface {
 	OnNothingPlaying(b *bot.Bot)
-	OnNewTrackPlayed(b *bot.Bot, track *spotify.CurrentPlaying)
-	OnOldTrackStillPlaying(b *bot.Bot, track *spotify.CurrentPlaying)
+	OnNewTrackPlayed(b *bot.Bot, track *spoty.CurrentPlaying)
+	OnOldTrackStillPlaying(b *bot.Bot, track *spoty.CurrentPlaying)
 }
 
-func NewSpotifyPlayer(cl *spotifyapi.Client, onError func(error) error) *SpotifyPlayer {
+func NewSpotifyPlayer(client *spotifyapi.Client, onError func(error) error) *SpotifyPlayer {
 	return &SpotifyPlayer{
-		cl: cl,
-		hooks: &SpotifyPlayerHookImpl{
+		client: client,
+		hooks: &spotifyPlayerHookImpl{
 			lastFmClient: lastfm.NewClient(config.C.LastFm.APIKey),
 			onError:      onError,
 		},
@@ -40,196 +40,144 @@ func NewSpotifyPlayer(cl *spotifyapi.Client, onError func(error) error) *Spotify
 }
 
 type SpotifyPlayer struct {
-	cl *spotifyapi.Client
+	client *spotifyapi.Client
 
-	lastPlayed       *spotify.CurrentPlaying
+	lastPlayed       *spoty.CurrentPlaying
 	lastProgressIdle int
 
-	hooks SpotifyPlayerHooks
-
+	hooks   SpotifyPlayerHooks
 	onError func(error) error
 }
 
-func (m *SpotifyPlayer) Handle(ctx context.Context, b *bot.Bot) {
+func (p *SpotifyPlayer) Handle(ctx context.Context, b *bot.Bot) {
 	go func() {
 		for {
-			if err := m.handleReal(ctx, b); err != nil {
-				if m.onError != nil {
-					if errd := m.onError(err); errd != nil {
-						return
-					}
+			if err := p.handle(ctx, b); err != nil && p.onError != nil {
+				if err2 := p.onError(err); err2 != nil {
+					return
 				}
 			}
-			if ctx.Err() != nil {
-				if m.onError != nil {
-					if err := m.onError(ctx.Err()); err != nil {
-						return
-					}
+
+			if ctx.Err() != nil && p.onError != nil {
+				if err := p.onError(ctx.Err()); err != nil {
+					return
 				}
 			}
-			time.Sleep(_SPOTIFY_RATE_LIMIT)
+
+			time.Sleep(spotifyRateLimit)
 		}
 	}()
 }
 
-func (m *SpotifyPlayer) handleReal(ctx context.Context, b *bot.Bot) error {
-	curPlay, err := spotify.GetCurrentPlaying(ctx, m.cl)
+func (p *SpotifyPlayer) handle(ctx context.Context, b *bot.Bot) error {
+	currentPlaying, err := spoty.GetCurrentPlaying(ctx, p.client)
 	if err != nil {
 		return err
 	}
 
-	hooksOk := m.hooks != nil
-
-	if curPlay == nil {
-		if hooksOk {
-			m.hooks.OnNothingPlaying(b)
-		}
-		m.lastPlayed = nil
+	if p.hooks == nil {
 		return nil
 	}
 
-	// Check is nothing played.
-	if m.lastPlayed != nil && curPlay.ID == m.lastPlayed.ID && !curPlay.Playing {
-		if m.lastProgressIdle >= _SPOTIFY_LAST_PROGRESS_IDLE {
-			if hooksOk {
-				m.hooks.OnNothingPlaying(b)
-			}
+	if currentPlaying == nil {
+		p.hooks.OnNothingPlaying(b)
+		p.lastPlayed = nil
+		return nil
+	}
+
+	// Track is paused but still the same track playing
+	if p.lastPlayed != nil && currentPlaying.ID == p.lastPlayed.ID && !currentPlaying.Playing {
+		if p.lastProgressIdle >= spotifyLastProgressIdle {
+			p.hooks.OnNothingPlaying(b)
 			return nil
 		}
-		m.lastProgressIdle++
-		m.hooks.OnOldTrackStillPlaying(b, curPlay)
+		p.lastProgressIdle++
+		p.hooks.OnOldTrackStillPlaying(b, currentPlaying)
 		return nil
 	}
 
-	m.lastProgressIdle = 0
+	p.lastProgressIdle = 0
 
-	if m.lastPlayed == nil || m.lastPlayed.ID != curPlay.ID {
-		// New track played.
-		if hooksOk {
-			m.hooks.OnNewTrackPlayed(b, curPlay)
-		}
+	if p.lastPlayed == nil || p.lastPlayed.ID != currentPlaying.ID {
+		p.hooks.OnNewTrackPlayed(b, currentPlaying)
 	} else {
-		// Old track still playing.
-		if hooksOk {
-			m.hooks.OnOldTrackStillPlaying(b, curPlay)
-		}
+		p.hooks.OnOldTrackStillPlaying(b, currentPlaying)
 	}
 
-	m.lastPlayed = curPlay
-
+	p.lastPlayed = currentPlaying
 	return nil
 }
 
-type SpotifyPlayerHookImpl struct {
+type spotifyPlayerHookImpl struct {
 	lastFmClient     *lastfm.Client
 	lastFmArtistInfo *lastfm.ArtistInfo
 	cachedMessage    string
 
-	topCached     string
-	topLastCached time.Time
-
 	onError func(error) error
 }
 
-func (s *SpotifyPlayerHookImpl) OnNothingPlaying(b *bot.Bot) {
+func (s *spotifyPlayerHookImpl) OnNothingPlaying(b *bot.Bot) {
 	currentTime := shared.TimeToRuWithSeconds(time.Now())
 
-	if time.Since(s.topLastCached) > 5*time.Hour {
-		const topMessage = "Топ за неделю:"
+	message := shared.TgText(currentTime)
 
-		var topTrackMessage string
-		topTracks, err := s.lastFmClient.UserGetTopTracks(config.C.LastFm.Username,
-			shared.TypeToPtr(lastfm.UserGetTopTracksPeriod7Day),
-			shared.TypeToPtr(1), nil)
-		if err != nil && s.onError != nil {
-			s.onError(err)
-		}
-		if err == nil && topTracks != nil && len(topTracks.Toptracks.Track) > 0 {
-			topTrack := topTracks.Toptracks.Track[0]
-			artistName := fmt.Sprintf("`%s - %s`", topTrack.Artist.Name, topTrack.Name)
-			topTrackMessage = fmt.Sprintf("Трек (слушал %s): %s", shared.FormatRaz(topTrack.Playcount), artistName)
-			topTrackMessage = shared.EscapeMarkdownV2(topTrackMessage)
-		}
-
-		var topArtistMessage string
-		topArtists, err := s.lastFmClient.UserGetTopArtists(config.C.LastFm.Username,
-			shared.TypeToPtr(lastfm.UserGetTopTracksPeriod7Day),
-			shared.TypeToPtr(1), nil)
-		if err != nil && s.onError != nil {
-			s.onError(err)
-		}
-		if err == nil && topArtists != nil && len(topArtists.Topartists.Artist) > 0 {
-			topArtist := topArtists.Topartists.Artist[0]
-			topArtistMessage = fmt.Sprintf("Исполнитель (слушал %s): `%s`", shared.FormatRaz(topArtist.Playcount), topArtist.Name)
-			topArtistMessage = shared.EscapeMarkdownV2(topArtistMessage)
-		}
-
-		s.topCached = topMessage + "\n" + topTrackMessage + "\n" + topArtistMessage
-		s.topLastCached = time.Now()
-	}
-
-	placeholder := shared.TgText(currentTime)
-
-	if len(s.topCached) > 0 {
-		placeholder += "\n\n" + s.topCached
-	}
-
-	placeholder = fmt.Sprintf("%s\n\n%s\n%s\n\n%s\n%s\n\n%s\n\n%s\n%s\n\n%s",
-		placeholder,
+	message += "\n\n" + strings.Join([]string{
 		shared.TgText("✉️ @dvdqr"),
 		shared.TgText("✉️ oklocate@gmail.com"),
+		"\n",
 		shared.TgLink("💰 Донат (DA)", "https://donationalerts.com/r/oklookat"),
 		shared.TgLink("💰 Донат (Boosty)", "https://boosty.to/oklookat/donate"),
+		"\n",
 		shared.TgLink("💻 GitHub", "https://github.com/oklookat"),
-		shared.TgLink("🎧 Spotify", "https://open.spotify.com/user/60c4lc5cwaesypcv9mvzb1klf"),
+		"\n",
+		shared.TgLink("🎧 Spotify", "https://open.spoty.com/user/60c4lc5cwaesypcv9mvzb1klf"),
 		shared.TgLink("🎧 Last.fm", "https://last.fm/user/ndskmusic"),
+		"\n",
 		shared.TgLink("🍿 Кинопоиск", "https://kinopoisk.ru/user/166758523"),
-	)
+	}, "\n")
 
-	s.displayToBot(context.Background(), b, nil, placeholder)
+	_ = s.displayToBot(context.Background(), b, nil, message)
 }
 
-func (s *SpotifyPlayerHookImpl) OnNewTrackPlayed(b *bot.Bot, track *spotify.CurrentPlaying) {
-	// Get last fm info.
-	lastFmLangs := []string{"en"}
-	var lastFmInfo *lastfm.ArtistInfo
-	for _, lang := range lastFmLangs {
-		laInfo, err := s.lastFmClient.ArtistGetInfo(track.Artist, lang)
+func (s *spotifyPlayerHookImpl) OnNewTrackPlayed(b *bot.Bot, track *spoty.CurrentPlaying) {
+	lastFmInfo := s.fetchArtistInfo(track.Artist)
+	s.lastFmArtistInfo = lastFmInfo
+
+	message := s.formatMessage(track, lastFmInfo, true)
+	_ = s.displayToBot(context.Background(), b, track, message)
+}
+
+func (s *spotifyPlayerHookImpl) fetchArtistInfo(artist string) *lastfm.ArtistInfo {
+	langs := []string{"en"}
+	for _, lang := range langs {
+		info, err := s.lastFmClient.ArtistGetInfo(artist, lang)
 		if err != nil && s.onError != nil {
-			s.onError(err)
+			_ = s.onError(err)
 		}
-		if laInfo == nil || err != nil {
+		if info == nil {
 			continue
 		}
-		bioSum := laInfo.BioSummaryWithoutLinks()
-		if len(bioSum) > 0 {
-			lastFmInfo = laInfo
-			break
+		if bio := info.BioSummaryWithoutLinks(); len(bio) > 0 {
+			return info
 		}
-		time.Sleep(2 * time.Second)
+		time.Sleep(2 * time.Second) // Respect API limits
 	}
-
-	s.lastFmArtistInfo = lastFmInfo
-	tgMsg := s.format(track, lastFmInfo, true)
-	s.displayToBot(context.Background(), b, track, tgMsg)
+	return nil
 }
 
-func (s *SpotifyPlayerHookImpl) OnOldTrackStillPlaying(b *bot.Bot, track *spotify.CurrentPlaying) {
-	tgMsg := s.format(track, s.lastFmArtistInfo, false)
-	s.displayToBot(context.Background(), b, track, tgMsg)
+func (s *spotifyPlayerHookImpl) OnOldTrackStillPlaying(b *bot.Bot, track *spoty.CurrentPlaying) {
+	message := s.formatMessage(track, s.lastFmArtistInfo, false)
+	_ = s.displayToBot(context.Background(), b, track, message)
 }
 
-func (s *SpotifyPlayerHookImpl) displayToBot(ctx context.Context, b *bot.Bot, track *spotify.CurrentPlaying, msg string) error {
-	// Find track cover for preview.
-	linkPreview := &models.LinkPreviewOptions{
-		IsDisabled: bot.True(),
-	}
+func (s *spotifyPlayerHookImpl) displayToBot(ctx context.Context, b *bot.Bot, track *spoty.CurrentPlaying, msg string) error {
+	linkPreview := &models.LinkPreviewOptions{IsDisabled: bot.True()}
 	if track != nil && track.CoverURL != nil && len(*track.CoverURL) > 0 {
 		linkPreview.IsDisabled = bot.False()
 		linkPreview.PreferLargeMedia = bot.True()
 		linkPreview.URL = track.CoverURL
 	}
-	// Display to bot.
+
 	_, err := b.EditMessageText(ctx, &bot.EditMessageTextParams{
 		ChatID:             config.C.Telegram.ChatID,
 		MessageID:          config.C.Telegram.MessageID,
@@ -237,83 +185,91 @@ func (s *SpotifyPlayerHookImpl) displayToBot(ctx context.Context, b *bot.Bot, tr
 		Text:               msg,
 		LinkPreviewOptions: linkPreview,
 	})
+	if err != nil && s.onError != nil {
+		s.onError(fmt.Errorf("spotifyPlayerHookImpl, displayToBot, trackID (%s): %w", track.ID, err))
+	}
+
 	return err
 }
 
-func (s *SpotifyPlayerHookImpl) format(track *spotify.CurrentPlaying, bio *lastfm.ArtistInfo, newTrack bool) string {
-	progressTime := s.formatTime(track.ProgressMs)
-	durationTime := s.formatTime(track.DurationMs)
-	progressDurationFormatted := fmt.Sprintf("%s %s %s", progressTime, s.formatProgressBarV1(track.ProgressMs, track.DurationMs), durationTime)
-	progressDurationFormatted = shared.TgText(progressDurationFormatted)
+func (s *spotifyPlayerHookImpl) formatMessage(track *spoty.CurrentPlaying, bio *lastfm.ArtistInfo, isNewTrack bool) string {
+	progress := fmt.Sprintf("%s %s %s",
+		s.formatTime(track.ProgressMs),
+		s.formatProgressBar(track.ProgressMs, track.DurationMs),
+		s.formatTime(track.DurationMs),
+	)
 
 	trackName := fmt.Sprintf("`%s`", shared.TgText(shared.EscapeMarkdownV2(s.formatTrackName(track))))
 
-	trackListeningStatus := "Слушаю"
+	statusIcon := "▶️"
 	if !track.Playing {
-		trackListeningStatus = "На паузе"
+		statusIcon = "⏸️"
 	}
-	trackMeta := fmt.Sprintf("%s: %s\n\n%s", trackListeningStatus, trackName, progressDurationFormatted)
 
-	//
-	if newTrack {
-		var cached string
+	meta := fmt.Sprintf("%s %s", statusIcon, trackName)
+	meta += "\n\n" + shared.TgText(progress)
+	meta += fmt.Sprintf("\n\n🔥 %d / 100", track.FullTrack.Popularity)
 
+	if isNewTrack {
+		var bioText string
 		if bio != nil {
-			artistBio := s.formatArtistBio(bio)
-			if len(artistBio) > 0 {
-				cached += artistBio + "\n\n"
-			}
+			bioText = s.formatArtistBio(bio)
 		}
 
-		// BIO-SPOTIFY-LASTFM
-		cached = fmt.Sprintf("%s🔗 %s", cached, shared.TgLink("Spotify", track.Link))
-		if bio != nil && len(bio.Artist.URL) > 0 {
+		cached := ""
+		if bioText != "" {
+			cached = bioText + "\n\n"
+		}
+		cached += fmt.Sprintf("🔗 %s", shared.TgLink("Spotify", track.Link))
+		if bio != nil && bio.Artist.URL != "" {
 			cached += "\n" + shared.TgLink("🔗 Last.fm", bio.Artist.URL)
 		}
-
 		cached += "\n\n" + shared.TgText(shared.TotalRandomEmoji())
 
 		s.cachedMessage = cached
 	}
 
 	footer := shared.TgLink("powered by oklookat/teletrack", "https://github.com/oklookat/teletrack")
-	msg := fmt.Sprintf("%s\n\n%s\n\n%s\n%s", shared.TgText(shared.TimeToRuWithSeconds(time.Now())), trackMeta, s.cachedMessage, footer)
 
-	return msg
+	return fmt.Sprintf("%s\n\n%s\n\n%s\n%s",
+		shared.TgText(shared.TimeToRuWithSeconds(time.Now())),
+		meta,
+		s.cachedMessage,
+		footer,
+	)
 }
 
-func (s *SpotifyPlayerHookImpl) formatTime(ms int) string {
+func (s *spotifyPlayerHookImpl) formatTime(ms int) string {
 	minutes := ms / 60000
 	seconds := (ms / 1000) % 60
 	return fmt.Sprintf("%02d:%02d", minutes, seconds)
 }
 
-func (s *SpotifyPlayerHookImpl) formatProgressBarV1(progressMs, durationMs int) string {
-	totalBlocks := 10 // длина прогресс-бара
-	progressBlocks := int(float64(progressMs) / float64(durationMs) * float64(totalBlocks))
-	return fmt.Sprintf("[%s%s]", strings.Repeat("█", progressBlocks), strings.Repeat("░", totalBlocks-progressBlocks))
+func (s *spotifyPlayerHookImpl) formatProgressBar(progressMs, durationMs int) string {
+	const totalBlocks = 10
+	progressBlocks := int(float64(progressMs) / float64(durationMs) * totalBlocks)
+	return fmt.Sprintf("[%s%s]",
+		strings.Repeat("█", progressBlocks),
+		strings.Repeat("░", totalBlocks-progressBlocks),
+	)
 }
 
-func (s *SpotifyPlayerHookImpl) formatTrackName(track *spotify.CurrentPlaying) string {
+func (s *spotifyPlayerHookImpl) formatTrackName(track *spoty.CurrentPlaying) string {
 	return track.Artist + " - " + track.Name
 }
 
-func (s *SpotifyPlayerHookImpl) formatArtistBio(resp *lastfm.ArtistInfo) string {
-	if resp == nil || len(resp.Artist.URL) == 0 {
+func (s *spotifyPlayerHookImpl) formatArtistBio(info *lastfm.ArtistInfo) string {
+	if info == nil || info.Artist.URL == "" {
 		return ""
 	}
-	bioSummary := resp.BioSummaryWithoutLinks()
-	//bioSummary = trimToFirstNewline(bioSummary)
-	bioSummary = shared.RemoveExtraNewlines(bioSummary)
-	bioSummary = shared.SliceByRunes(bioSummary, 0, 480)
-	//bioSummary = sliceToLastDot(bioSummary)
-	bioSummary = strings.TrimSpace(bioSummary)
-	if len(bioSummary) < 12 {
+
+	bio := shared.RemoveExtraNewlines(info.BioSummaryWithoutLinks())
+	bio = shared.TruncateText(bio, 10, 324)
+	bio = strings.TrimSpace(bio)
+
+	if len(bio) < 12 {
 		return ""
 	}
-	// Delete all dots at the end.
-	bioSummary = strings.TrimSuffix(bioSummary, ".")
-	bioSummary += "..."
-	bioSummary = shared.TgText(shared.EscapeMarkdownV2(bioSummary))
-	return bioSummary
+
+	return shared.TgText(shared.EscapeMarkdownV2(bio))
 }
