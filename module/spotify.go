@@ -124,15 +124,15 @@ func (s *spotifyPlayerHookImpl) OnNothingPlaying(b *bot.Bot) {
 	message += "\n\n" + strings.Join([]string{
 		shared.TgText("✉️ @dvdqr"),
 		shared.TgText("✉️ oklocate@gmail.com"),
-		"\n",
+		"",
 		shared.TgLink("💰 Донат (DA)", "https://donationalerts.com/r/oklookat"),
 		shared.TgLink("💰 Донат (Boosty)", "https://boosty.to/oklookat/donate"),
-		"\n",
+		"",
 		shared.TgLink("💻 GitHub", "https://github.com/oklookat"),
-		"\n",
+		"",
 		shared.TgLink("🎧 Spotify", "https://open.spoty.com/user/60c4lc5cwaesypcv9mvzb1klf"),
 		shared.TgLink("🎧 Last.fm", "https://last.fm/user/ndskmusic"),
-		"\n",
+		"",
 		shared.TgLink("🍿 Кинопоиск", "https://kinopoisk.ru/user/166758523"),
 	}, "\n")
 

@@ -24,3 +24,5 @@ go.work
 .env
 
 *.json
+*.gz
+teletrack-prod/

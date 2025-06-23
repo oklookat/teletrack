@@ -1,29 +1,25 @@
 #!/bin/bash
 
-INSTALL_DIR="/opt/teletrack"
-UNIT="teletrack.service"
-UNIT_PATHS=("/etc/systemd/system/")
+set -e
 
-# Удаление установленного каталога
+SERVICE_NAME="teletrack.service"
+INSTALL_DIR="/opt/teletrack"
+BIN_DIR="$INSTALL_DIR/bin"
+CFG_DIR="$INSTALL_DIR/bin"
+
+echo "Остановка службы $SERVICE_NAME..."
+sudo systemctl stop "$SERVICE_NAME" || true
+
+echo "Отключение автозапуска службы $SERVICE_NAME..."
+sudo systemctl disable "$SERVICE_NAME" || true
+
+echo "Удаление systemd юнита..."
+sudo rm -f "/etc/systemd/system/$SERVICE_NAME"
+
+echo "Перезагрузка systemd..."
+sudo systemctl daemon-reload
+
+echo "Удаление бинарников и конфигураций..."
 sudo rm -rf "$INSTALL_DIR"
 
-# Проверка наличия юнита и удаление, если существует
-UNIT_EXISTS=false
-for UNIT_PATH in "${UNIT_PATHS[@]}"; do
-  if [ -f "$UNIT_PATH$UNIT" ]; then
-    UNIT_EXISTS=true
-    UNIT_PATH=$UNIT_PATH
-    break
-  fi
-done
-
-if [ "$UNIT_EXISTS" = true ]; then
-  echo "'$UNIT' найден в $UNIT_PATH. Остановка и удаление..."
-  sudo systemctl stop "$UNIT"
-  sudo systemctl disable "$UNIT"
-  sudo rm "$UNIT_PATH$UNIT"
-  sudo systemctl daemon-reload
-  echo "'$UNIT' успешно удалён."
-else
-  echo "'$UNIT' не существует."
-fi
+echo "✅ Удаление завершено."
