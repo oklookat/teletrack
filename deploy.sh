@@ -1,6 +1,6 @@
 #!/bin/sh
 
-source .env
+source ./.env
 
 TAR_GZ="teletrack.tar.gz"
 TAR_GZ_LOCAL_PATH="$TAR_GZ"
