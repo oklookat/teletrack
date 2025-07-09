@@ -171,12 +171,12 @@ func (s *spotifyPlayerHookImpl) OnOldTrackStillPlaying(b *bot.Bot, track *spoty.
 }
 
 func (s *spotifyPlayerHookImpl) displayToBot(ctx context.Context, b *bot.Bot, track *spoty.CurrentPlaying, msg string) error {
-	if b == nil || track == nil {
+	if b == nil {
 		return nil
 	}
 
 	linkPreview := &models.LinkPreviewOptions{IsDisabled: bot.True()}
-	if track.CoverURL != nil && len(*track.CoverURL) > 0 {
+	if track != nil && track.CoverURL != nil && len(*track.CoverURL) > 0 {
 		linkPreview.IsDisabled = bot.False()
 		linkPreview.PreferLargeMedia = bot.True()
 		linkPreview.URL = track.CoverURL
