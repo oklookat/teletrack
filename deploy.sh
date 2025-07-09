@@ -1,6 +1,8 @@
-#!/bin/sh
+#!/bin/bash
 
-source ./.env
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+echo $SCRIPT_DIR
+source "$SCRIPT_DIR/.env"
 
 TAR_GZ="teletrack.tar.gz"
 TAR_GZ_LOCAL_PATH="$TAR_GZ"
