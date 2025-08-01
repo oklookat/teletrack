@@ -206,45 +206,6 @@ func EscapeMarkdownV2(input string) string {
 	return re.ReplaceAllString(input, `\$1`)                // Экранируем найденные символы
 }
 
-func SliceByRunes(s string, start, end int) string {
-	// Преобразуем строку в срез рун
-	runes := []rune(s)
-
-	// Проверяем, что start и end не выходят за пределы длины среза рун
-	if start < 0 || start > len(runes) || end > len(runes) || start > end {
-		// Если end выходит за пределы, возвращаем исходную строку
-		return s
-	}
-
-	// Возвращаем срез строк, преобразованный обратно в строку
-	return string(runes[start:end])
-}
-
-func SliceToLastDot(s string) string {
-	// Находим индекс последней точки
-	index := strings.LastIndex(s, ".")
-
-	// Если точка найдена, обрезаем строку до этого индекса (включая точку)
-	if index != -1 {
-		return s[:index+1]
-	}
-
-	// Если точки нет, возвращаем строку целиком
-	return s
-}
-
-func TrimToFirstNewline(s string) string {
-	// Находим индекс первого символа переноса строки
-	index := strings.Index(s, "\n")
-
-	// Если перенос строки найден, обрезаем строку до этого индекса
-	if index != -1 {
-		return s[:index]
-	}
-	// Если перенос строки не найден, возвращаем строку целиком
-	return s
-}
-
 func RemoveExtraNewlines(input string) string {
 	// Используем регулярное выражение, чтобы заменить последовательности \n на один \n
 	re := regexp.MustCompile(`\n+`)
@@ -261,60 +222,63 @@ func EndsWithSentenceTerminator(text string) bool {
 	return r == '.' || r == '!' || r == '?'
 }
 
-// truncateText limits text by maxSentences and maxLen, appending ellipsis if needed.
-func TruncateText(text string, maxSentences, maxLen int) string {
+// SmartTruncateText cuts after full sentences, without breaking URLs or mid-words.
+func SmartTruncateText(text string, maxSentences, maxLen int) string {
 	if maxSentences <= 0 || maxLen <= 0 {
 		return "..."
 	}
 
-	sentenceEnds := []int{}
-	for i, r := range text {
-		if r == '.' || r == '!' || r == '?' {
-			sentenceEnds = append(sentenceEnds, i)
-			if len(sentenceEnds) == maxSentences {
-				end := sentenceEnds[len(sentenceEnds)-1] + 1
-				if end > maxLen {
-					return TrimToLength(text, maxLen)
-				}
-				truncated := strings.TrimSpace(text[:end])
-				if EndsWithSentenceTerminator(truncated) {
-					return truncated
-				}
-				return truncated + "..."
-			}
+	sentences := splitIntoSentences(text)
+	var result strings.Builder
+	count := 0
+
+	for _, sentence := range sentences {
+		if count >= maxSentences {
+			break
 		}
-	}
 
-	for i := len(sentenceEnds); i > 0; i-- {
-		end := sentenceEnds[i-1] + 1
-		if end <= maxLen {
-			truncated := strings.TrimSpace(text[:end])
-			if EndsWithSentenceTerminator(truncated) {
-				return truncated
-			}
-			return truncated + "..."
+		if result.Len()+len(sentence) > maxLen {
+			break
 		}
+
+		result.WriteString(sentence)
+		count++
 	}
 
-	if len(text) > maxLen {
-		return TrimToLength(text, maxLen)
+	final := strings.TrimSpace(result.String())
+	if len(final) == 0 {
+		// fallback: just cut by words
+		return safeTruncate(text, maxLen)
 	}
 
-	return text
+	return final
 }
 
-// trimToLength trims text to maxLen, avoiding cutting words, adding ellipsis if needed
-func TrimToLength(text string, maxLen int) string {
+// splitIntoSentences uses regex to split text into proper sentences.
+func splitIntoSentences(text string) []string {
+	// Match sentence-ending punctuation followed by space and capital letter or end
+	re := regexp.MustCompile(`(?m)([^.!?]*[.!?])(?:\s+|$)`)
+	matches := re.FindAllString(text, -1)
+
+	var sentences []string
+	for _, m := range matches {
+		trimmed := strings.TrimSpace(m)
+		if len(trimmed) > 0 {
+			sentences = append(sentences, trimmed+" ")
+		}
+	}
+	return sentences
+}
+
+// safeTruncate cuts text without breaking words or URLs
+func safeTruncate(text string, maxLen int) string {
 	if len(text) <= maxLen {
 		return text
 	}
-	truncated := strings.TrimSpace(text[:maxLen])
-	lastSpace := strings.LastIndex(truncated, " ")
+	trimmed := strings.TrimSpace(text[:maxLen])
+	lastSpace := strings.LastIndex(trimmed, " ")
 	if lastSpace > 0 {
-		truncated = truncated[:lastSpace]
+		trimmed = trimmed[:lastSpace]
 	}
-	if EndsWithSentenceTerminator(truncated) {
-		return truncated
-	}
-	return truncated + "..."
+	return trimmed + "..."
 }

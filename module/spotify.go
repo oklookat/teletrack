@@ -268,7 +268,7 @@ func (s *spotifyPlayerHookImpl) formatArtistBio(info *lastfm.ArtistInfo) string 
 	}
 
 	bio := shared.RemoveExtraNewlines(info.BioSummaryWithoutLinks())
-	bio = shared.TruncateText(bio, 10, 324)
+	bio = shared.SmartTruncateText(bio, 10, 324)
 	bio = strings.TrimSpace(bio)
 
 	if len(bio) < 12 {
