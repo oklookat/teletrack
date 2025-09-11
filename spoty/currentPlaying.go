@@ -26,6 +26,7 @@ func GetCurrentPlaying(ctx context.Context, cl *spotify.Client) (*CurrentPlaying
 	if err != nil {
 		return nil, err
 	}
+
 	if curPlay == nil || curPlay.Item == nil || curPlay.Item.ExternalURLs == nil {
 		return nil, nil
 	}
@@ -35,9 +36,9 @@ func GetCurrentPlaying(ctx context.Context, cl *spotify.Client) (*CurrentPlaying
 		return nil, nil
 	}
 
-	var coverURL string
+	var coverURL *string
 	if len(curPlay.Item.Album.Images) > 0 {
-		coverURL = curPlay.Item.Album.Images[0].URL
+		coverURL = &curPlay.Item.Album.Images[0].URL
 	}
 
 	sTrack := curPlay.Item.SimpleTrack
@@ -54,13 +55,14 @@ func GetCurrentPlaying(ctx context.Context, cl *spotify.Client) (*CurrentPlaying
 		DurationMs: int(sTrack.Duration),
 		ProgressMs: int(curPlay.Progress),
 		Link:       spotifyLink,
-		CoverURL:   &coverURL,
+		CoverURL:   coverURL,
 		Playing:    curPlay.Playing,
 		FullTrack:  curPlay.Item,
 	}
+
 	if len(artistsNames) > 0 {
 		curPlaying.Artist = artistsNames[0]
 	}
 
-	return curPlaying, err
+	return curPlaying, nil
 }

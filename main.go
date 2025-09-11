@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 
 	"github.com/oklookat/teletrack/config"
 	"github.com/oklookat/teletrack/module"
@@ -16,43 +18,63 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	chk(config.Boot())
-
-	// Spotify.
-	if config.C.Spotify.Authorize {
-		chk(authorizeSpotify(ctx))
-		println("Done.")
-		os.Exit(0)
+	// Boot configuration
+	if err := config.Boot(); err != nil {
+		if strings.Contains(err.Error(), "config created") {
+			println(err.Error())
+			os.Exit(0)
+		}
+		slog.Error("config boot failed", "err", err)
+		os.Exit(1)
 	}
-	spotifyCl := spoty.GetClient(config.C.Spotify.RedirectURI, config.C.Spotify.ClientID, config.C.Spotify.ClientSecret, config.C.Spotify.Token)
 
-	// Bot.
-	telegram.Boot(ctx, config.C.Telegram, []telegram.Module{
+	// Spotify authorization
+	if config.C.Spotify.Authorize {
+		if err := authorizeSpotify(ctx); err != nil {
+			slog.Error("spotify authorization failed", "err", err)
+			os.Exit(1)
+		}
+		slog.Info("Spotify authorization complete")
+		return
+	}
+
+	spotifyCl := spoty.GetClient(
+		config.C.Spotify.RedirectURI,
+		config.C.Spotify.ClientID,
+		config.C.Spotify.ClientSecret,
+		config.C.Spotify.Token,
+	)
+
+	// Initialize Telegram bot
+	var tgBot *telegram.TelegramBot
+	tgBot, err := telegram.NewTelegramBot(ctx, config.C.Telegram, []telegram.Module{
 		module.NewSpotifyPlayer(spotifyCl, func(err error) error {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return err
 			}
-			telegram.HandleError(ctx, err)
+			tgBot.SendError(ctx, err)
 			return nil
 		}),
 	})
-	for {
-		<-ctx.Done()
-		break
+	if err != nil {
+		slog.Error("failed to start telegram bot", "err", err)
+		os.Exit(1)
 	}
+
+	// Wait until context is canceled or /stop is received
+	select {
+	case <-ctx.Done():
+	case <-tgBot.StopChannel():
+		slog.Info("stop signal received")
+	}
+
+	slog.Info("shutting down application")
 }
 
-func chk(err error) {
-	if err == nil {
-		return
-	}
-	println(err.Error())
-	os.Exit(1)
-}
-
+// authorizeSpotify runs OAuth and saves the token
 func authorizeSpotify(ctx context.Context) error {
 	token, err := spoty.Authorize(ctx, config.C.Spotify, func(url string) {
-		println("Go to URL: " + url)
+		slog.Info("Go to URL for Spotify auth", "url", url)
 	})
 	if err != nil {
 		return err

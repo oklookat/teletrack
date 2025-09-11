@@ -1,6 +1,7 @@
 [Unit]
 Description=teletrack bot
 After=network.target
+Wants=network-online.target
 
 [Service]
 WorkingDirectory=/opt/teletrack/bin
@@ -8,6 +9,8 @@ Type=simple
 ExecStart=/opt/teletrack/bin/teletrack
 Restart=on-failure
 RestartSec=30
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target

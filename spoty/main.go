@@ -16,90 +16,65 @@ import (
 )
 
 var (
-	_state = "abc123"
-
-	// So far, there have been no problems with AU, for example when searching.
+	_state  = "abc123"
 	_market = spotify.Market("AU")
 )
 
-func Authorize(ctx context.Context,
-	cfg *config.Spotify,
-	onURL func(url string)) (*oauth2.Token, error) {
-
+// Authorize initiates the Spotify OAuth flow and returns a token.
+func Authorize(ctx context.Context, cfg *config.Spotify, onURL func(string)) (*oauth2.Token, error) {
 	return getTokens(ctx, cfg.RedirectURI, cfg.ClientID, cfg.ClientSecret, onURL)
 }
 
-func getTokens(ctx context.Context,
-	redirectURI,
-	clientID,
-	clientSecret string,
-	onURL func(url string)) (*oauth2.Token, error) {
-
-	httpErr := make(chan error)
+func getTokens(ctx context.Context, redirectURI, clientID, clientSecret string, onURL func(string)) (*oauth2.Token, error) {
 	auth := getAuthenticator(redirectURI, clientID, clientSecret)
+	clientCh := make(chan *spotify.Client, 1)
+	errCh := make(chan error, 1)
 
-	clientCh := make(chan *spotify.Client)
-
-	go serve(ctx, func(w http.ResponseWriter, r *http.Request) {
-		tok, err := auth.Token(r.Context(), _state, r)
-		if err != nil {
-			httpErr <- err
-			return
+	// Start temporary HTTP server to handle redirect
+	go func() {
+		if err := serve(ctx, redirectURI, func(w http.ResponseWriter, r *http.Request) {
+			handleOAuthCallback(auth, w, r, clientCh, errCh)
+		}); err != nil && !errors.Is(err, context.Canceled) {
+			errCh <- err
 		}
+	}()
 
-		if st := r.FormValue("state"); st != _state {
-			msg := fmt.Errorf("state mismatch. Actual: %s, got: %s", st, _state)
-			w.WriteHeader(404)
-			w.Write([]byte(msg.Error()))
-			httpErr <- msg
-			return
+	// Provide URL to the user
+	go onURL(auth.AuthURL(_state))
+
+	select {
+	case client := <-clientCh:
+		if client == nil {
+			return nil, errors.New("received nil Spotify client")
 		}
-
-		auClient := auth.Client(r.Context(), tok)
-
-		clientCh <- spotify.New(auClient, spotify.WithRetry(true))
-		w.WriteHeader(200)
-		w.Write([]byte("Done. Now you can go back to where you came from."))
-		httpErr <- err
-	}, redirectURI)
-
-	// get auth url
-	url := auth.AuthURL(_state)
-
-	// send url to user
-	go onURL(url)
-
-	var client *spotify.Client
-L:
-	for {
-		select {
-		// check err from http handler
-		case err := <-httpErr:
-			if err != nil {
-				return nil, err
-			}
-		// check client from handler
-		case client = <-clientCh:
-			if client == nil {
-				return nil, errors.New("nil client")
-			}
-			break L
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-	}
-
-	// get tokens
-	token, err := client.Token()
-	if err != nil {
+		return client.Token()
+	case err := <-errCh:
 		return nil, err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func handleOAuthCallback(auth *spotifyauth.Authenticator, w http.ResponseWriter, r *http.Request, clientCh chan<- *spotify.Client, errCh chan<- error) {
+	token, err := auth.Token(r.Context(), _state, r)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get token: %v", err), http.StatusInternalServerError)
+		errCh <- err
+		return
 	}
 
-	if errors.Is(ctx.Err(), context.Canceled) {
-		return nil, context.Canceled
+	if state := r.FormValue("state"); state != _state {
+		msg := fmt.Errorf("state mismatch. Expected %s, got %s", _state, state)
+		http.Error(w, msg.Error(), http.StatusBadRequest)
+		errCh <- msg
+		return
 	}
 
-	return token, err
+	client := spotify.New(auth.Client(r.Context(), token), spotify.WithRetry(true))
+	clientCh <- client
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Authorization successful! You can now return to the application."))
 }
 
 func getAuthenticator(redirectURI, clientID, clientSecret string) *spotifyauth.Authenticator {
@@ -110,13 +85,10 @@ func getAuthenticator(redirectURI, clientID, clientSecret string) *spotifyauth.A
 		spotifyauth.WithScopes(
 			spotifyauth.ScopeUserReadCurrentlyPlaying,
 			spotifyauth.ScopeUserReadPrivate,
-
 			spotifyauth.ScopeUserLibraryRead,
 			spotifyauth.ScopeUserLibraryModify,
-
 			spotifyauth.ScopeUserFollowRead,
 			spotifyauth.ScopeUserFollowModify,
-
 			spotifyauth.ScopePlaylistReadPrivate,
 			spotifyauth.ScopePlaylistModifyPrivate,
 			spotifyauth.ScopePlaylistModifyPublic,
@@ -124,55 +96,46 @@ func getAuthenticator(redirectURI, clientID, clientSecret string) *spotifyauth.A
 	)
 }
 
-func serve(ctx context.Context, what http.HandlerFunc, redirectURI string) (err error) {
-
-	rediURL, err := url.Parse(redirectURI)
+// serve runs a temporary HTTP server to handle OAuth redirect
+func serve(ctx context.Context, redirectURI string, handler http.HandlerFunc) error {
+	u, err := url.Parse(redirectURI)
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid redirect URI: %w", err)
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle(rediURL.Path, what)
+	mux.HandleFunc(u.Path, handler)
 
-	port := ":" + rediURL.Port()
+	port := ":" + u.Port()
 	srv := &http.Server{
 		Addr:    port,
 		Handler: mux,
 	}
 
 	go func() {
-		if err = srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("server listen: " + err.Error())
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("server listen error: " + err.Error())
 		}
 	}()
 
-	slog.Debug("server started")
+	slog.Debug("Spotify OAuth server started on port " + u.Port())
 
 	<-ctx.Done()
 
-	slog.Debug("server stopped")
-
 	ctxShutDown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer func() {
-		cancel()
-	}()
+	defer cancel()
 
-	if err = srv.Shutdown(ctxShutDown); err != nil {
-		if !(errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
-			slog.Error("shutdown: " + err.Error())
-		}
+	if err := srv.Shutdown(ctxShutDown); err != nil && !errors.Is(err, context.Canceled) {
+		slog.Error("server shutdown error: " + err.Error())
 	}
 
-	if err == http.ErrServerClosed {
-		err = nil
-	}
-
-	return
+	slog.Debug("Spotify OAuth server stopped")
+	return nil
 }
 
+// GetClient returns a Spotify client from an OAuth token
 func GetClient(redirectURI, clientID, clientSecret string, token *oauth2.Token) *spotify.Client {
-	au := getAuthenticator(redirectURI, clientID, clientSecret)
-	auClient := au.Client(context.Background(), token)
-	client := spotify.New(auClient)
-	return client
+	auth := getAuthenticator(redirectURI, clientID, clientSecret)
+	httpClient := auth.Client(context.Background(), token)
+	return spotify.New(httpClient, spotify.WithRetry(true))
 }

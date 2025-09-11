@@ -2,10 +2,12 @@ package lastfm
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 )
 
+// UserGetTopTracksPeriod defines the period for top tracks/artists queries.
 type UserGetTopTracksPeriod string
 
 const (
@@ -17,39 +19,43 @@ const (
 	UserGetTopTracksPeriod12Month UserGetTopTracksPeriod = "12month"
 )
 
-func (c Client) UserGetTopTracks(user string, period *UserGetTopTracksPeriod, limit *int, page *int) (*UserGetTopTracksResponse, error) {
+// UserGetTopTracks fetches top tracks for a user from Last.fm.
+func (c *Client) UserGetTopTracks(user string, period *UserGetTopTracksPeriod, limit *int, page *int) (*UserGetTopTracksResponse, error) {
 	const method = "user.getTopTracks"
+
+	if user == "" {
+		return nil, errors.New("user is required")
+	}
+	if c.APIKey == "" {
+		return nil, errors.New("API key is required")
+	}
 
 	apiURL := *_apiURL
 	query := apiURL.Query()
-
 	query.Set("method", method)
 	query.Set("user", user)
-	query.Set("api_key", c.apiKey)
-
-	apiURL.RawQuery = query.Encode()
+	query.Set("api_key", c.APIKey)
 
 	if limit != nil {
 		query.Set("limit", strconv.Itoa(*limit))
 	}
 	if page != nil {
-		query.Set("page", strconv.Itoa(*limit))
+		query.Set("page", strconv.Itoa(*page))
 	}
 	if period != nil {
-		uPtr := *period
-		query.Set("period", string(uPtr))
+		query.Set("period", string(*period))
 	}
 
 	query.Set("format", "json")
 	apiURL.RawQuery = query.Encode()
 
-	resp, err := http.Get(apiURL.String())
+	resp, err := c.HTTP.Get(apiURL.String())
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		var apiErr ApiError
 		if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
 			return nil, err
@@ -62,42 +68,46 @@ func (c Client) UserGetTopTracks(user string, period *UserGetTopTracksPeriod, li
 		return nil, err
 	}
 
-	return respDec, err
+	return respDec, nil
 }
 
-func (c Client) UserGetTopArtists(user string, period *UserGetTopTracksPeriod, limit *int, page *int) (*UserGetTopArtistsResponse, error) {
+// UserGetTopArtists fetches top artists for a user from Last.fm.
+func (c *Client) UserGetTopArtists(user string, period *UserGetTopTracksPeriod, limit *int, page *int) (*UserGetTopArtistsResponse, error) {
 	const method = "user.getTopArtists"
+
+	if user == "" {
+		return nil, errors.New("user is required")
+	}
+	if c.APIKey == "" {
+		return nil, errors.New("API key is required")
+	}
 
 	apiURL := *_apiURL
 	query := apiURL.Query()
-
 	query.Set("method", method)
 	query.Set("user", user)
-	query.Set("api_key", c.apiKey)
-
-	apiURL.RawQuery = query.Encode()
+	query.Set("api_key", c.APIKey)
 
 	if limit != nil {
 		query.Set("limit", strconv.Itoa(*limit))
 	}
 	if page != nil {
-		query.Set("page", strconv.Itoa(*limit))
+		query.Set("page", strconv.Itoa(*page))
 	}
 	if period != nil {
-		uPtr := *period
-		query.Set("period", string(uPtr))
+		query.Set("period", string(*period))
 	}
 
 	query.Set("format", "json")
 	apiURL.RawQuery = query.Encode()
 
-	resp, err := http.Get(apiURL.String())
+	resp, err := c.HTTP.Get(apiURL.String())
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		var apiErr ApiError
 		if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
 			return nil, err
@@ -110,5 +120,5 @@ func (c Client) UserGetTopArtists(user string, period *UserGetTopTracksPeriod, l
 		return nil, err
 	}
 
-	return respDec, err
+	return respDec, nil
 }

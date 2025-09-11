@@ -1,8 +1,9 @@
 #!/bin/bash
+set -euo pipefail
 
-set -e 
-
+# Run uninstall if present
 if [[ -f "./uninstall.sh" ]]; then
+    # shellcheck source=/dev/null
     source ./uninstall.sh
 fi
 
@@ -13,23 +14,23 @@ UNIT="$BASE_DIR/teletrack.service"
 
 INSTALL_DIR="/opt/teletrack"
 BIN_DIR="$INSTALL_DIR/bin"
-CFG_DIR="$INSTALL_DIR/bin"
+CFG_DIR="$INSTALL_DIR/bin"  # keeping config with binary for simplicity
 
-echo "Создание каталогов в $INSTALL_DIR..."
+echo "📁 Creating directories in $INSTALL_DIR..."
 sudo install -d -m 755 -o root -g root "$BIN_DIR" "$CFG_DIR"
 
-echo "Копирование бинарного файла $BIN..."
+echo "📦 Copying binary file: $BIN"
 sudo install -m 755 "$BIN" "$BIN_DIR/"
 
-echo "Копирование конфигурационного файла $CFG..."
+echo "📝 Copying configuration file: $CFG"
 sudo install -m 644 "$CFG" "$CFG_DIR/"
 
-echo "Копирование systemd юнита $UNIT..."
+echo "⚙️ Copying systemd unit: $UNIT"
 sudo install -m 644 "$UNIT" "/etc/systemd/system/"
 
-echo "Перезагрузка systemd и запуск службы..."
+echo "🔄 Reloading systemd and starting service..."
 sudo systemctl daemon-reload
 sudo systemctl enable teletrack.service
 sudo systemctl restart teletrack.service
 
-echo "✅ Установка завершена."
+echo "✅ Installation complete."

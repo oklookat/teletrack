@@ -1,6 +1,9 @@
 package lastfm
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func getClient() *Client {
 	return NewClient("")
@@ -20,7 +23,7 @@ func TestUserGetRecentTracks(t *testing.T) {
 }
 
 func TestArtistGetInfo(t *testing.T) {
-	info, err := getClient().ArtistGetInfo("the hellp", "en")
+	info, err := getClient().ArtistGetInfo(context.Background(), "the hellp", "en")
 	if err != nil {
 		t.Fatal(err)
 	}

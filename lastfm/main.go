@@ -2,6 +2,7 @@ package lastfm
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -11,16 +12,22 @@ import (
 
 var _apiURL, _ = url.Parse("https://ws.audioscrobbler.com/2.0/")
 
+// Client is a Last.fm API client.
+type Client struct {
+	APIKey string
+	HTTP   *http.Client
+}
+
+// NewClient creates a new Last.fm API client.
 func NewClient(apiKey string) *Client {
 	return &Client{
-		apiKey: apiKey,
+		APIKey: apiKey,
+		HTTP:   &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
-type Client struct {
-	apiKey string
-}
-
+// UserGetRecentTracks fetches recent tracks for a user from Last.fm.
+//
 // limit (Optional) : The number of results to fetch per page. Defaults to 50. Maximum is 200.
 //
 // user (Required) : The last.fm username to fetch the recent tracks of.
@@ -34,44 +41,48 @@ type Client struct {
 // to (Optional) : End timestamp of a range - only display scrobbles before this time, in UNIX timestamp format (integer number of seconds since 00:00:00, January 1st 1970 UTC). This must be in the UTC time zone.
 //
 // api_key (Required) : A Last.fm API key.
-func (c Client) UserGetRecentTracks(user string, limit *int, page *int, from *time.Time, extended *bool, to *time.Time) (*UserGetRecentTracksResponse, error) {
+func (c *Client) UserGetRecentTracks(user string, limit *int, page *int, from *time.Time, extended *bool, to *time.Time) (*UserGetRecentTracksResponse, error) {
 	const method = "user.getRecentTracks"
+
+	if user == "" {
+		return nil, errors.New("user is required")
+	}
+	if c.APIKey == "" {
+		return nil, errors.New("API key is required")
+	}
 
 	apiURL := *_apiURL
 	query := apiURL.Query()
-
 	query.Set("method", method)
 	query.Set("user", user)
-	query.Set("api_key", c.apiKey)
-
-	apiURL.RawQuery = query.Encode()
+	query.Set("api_key", c.APIKey)
 
 	if limit != nil {
 		query.Set("limit", strconv.Itoa(*limit))
 	}
 	if page != nil {
-		query.Set("page", strconv.Itoa(*limit))
+		query.Set("page", strconv.Itoa(*page))
 	}
 	if from != nil {
-		query.Set("from", fmt.Sprintf("%d", from.UTC().UnixMilli()))
+		query.Set("from", fmt.Sprintf("%d", from.UTC().Unix()))
 	}
 	if extended != nil {
 		query.Set("extended", strconv.Itoa(btoi(*extended)))
 	}
 	if to != nil {
-		query.Set("to", fmt.Sprintf("%d", to.UTC().UnixMilli()))
+		query.Set("to", fmt.Sprintf("%d", to.UTC().Unix()))
 	}
 
 	query.Set("format", "json")
 	apiURL.RawQuery = query.Encode()
 
-	resp, err := http.Get(apiURL.String())
+	resp, err := c.HTTP.Get(apiURL.String())
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		var apiErr ApiError
 		if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
 			return nil, err
@@ -84,9 +95,10 @@ func (c Client) UserGetRecentTracks(user string, limit *int, page *int, from *ti
 		return nil, err
 	}
 
-	return respDec, err
+	return respDec, nil
 }
 
+// btoi converts a bool to int (true=1, false=0).
 func btoi(b bool) int {
 	if b {
 		return 1
