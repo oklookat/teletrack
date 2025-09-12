@@ -37,32 +37,29 @@ func GetCurrentPlaying(ctx context.Context, cl *spotify.Client) (*CurrentPlaying
 		return nil, nil
 	}
 
+	sTrack := curPlay.Item.SimpleTrack
+	if len(sTrack.Artists) == 0 {
+		return nil, nil
+	}
+
 	var coverURL *string
 	if len(curPlay.Item.Album.Images) > 0 {
 		coverURL = &curPlay.Item.Album.Images[0].URL
 	}
 
-	sTrack := curPlay.Item.SimpleTrack
+	artistID := sTrack.Artists[0].ID.String()
+	artistName := sTrack.Artists[0].Name
 
-	var artistID string
 	var artistsNames []string
 	for _, ar := range sTrack.Artists {
-		if len(artistID) == 0 {
-			artistID = ar.ID.String()
-		}
 		artistsNames = append(artistsNames, ar.Name)
-	}
-
-	trackID := sTrack.ID.String()
-	if len(artistID) == 0 || len(artistsNames) == 0 || len(trackID) == 0 {
-		return nil, nil
 	}
 
 	curPlaying := &CurrentPlaying{
 		ID:         sTrack.ID.String(),
 		Name:       sTrack.Name,
 		Artists:    strings.Join(artistsNames, ", "),
-		Artist:     artistsNames[0],
+		Artist:     artistName,
 		ArtistID:   artistID,
 		DurationMs: int(sTrack.Duration),
 		ProgressMs: int(curPlay.Progress),
