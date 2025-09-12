@@ -21,19 +21,19 @@ import (
 const (
 	spotifyRateLimitSec     = 4
 	spotifyRateLimit        = spotifyRateLimitSec * time.Second
-	spotifyLastProgressIdle = 3 * (spotifyRateLimitSec / 2)
+	spotifyLastProgressIdle = 3 * (spotifyRateLimit / 2)
 	bioCacheTTL             = 5 * time.Minute
 	artistInfoFetchTimeout  = 5 * time.Second
 )
 
-// SpotifyPlayerHooks defines interface for player event hooks
+// ---------------------- Player ----------------------
+
 type SpotifyPlayerHooks interface {
 	OnNothingPlaying(ctx context.Context, b *bot.Bot)
 	OnNewTrackPlayed(ctx context.Context, b *bot.Bot, track *spoty.CurrentPlaying)
 	OnOldTrackStillPlaying(ctx context.Context, b *bot.Bot, track *spoty.CurrentPlaying)
 }
 
-// SpotifyPlayer monitors Spotify playback
 type SpotifyPlayer struct {
 	client   *spotifyapi.Client
 	hooks    SpotifyPlayerHooks
@@ -46,7 +46,6 @@ type SpotifyPlayer struct {
 	lastProgressTime time.Time
 }
 
-// NewSpotifyPlayer creates a new Spotify player instance
 func NewSpotifyPlayer(client *spotifyapi.Client, onError func(error) error) *SpotifyPlayer {
 	player := &SpotifyPlayer{
 		client:   client,
@@ -57,13 +56,11 @@ func NewSpotifyPlayer(client *spotifyapi.Client, onError func(error) error) *Spo
 	return player
 }
 
-// Handle starts the Spotify player monitoring
 func (p *SpotifyPlayer) Handle(ctx context.Context, b *bot.Bot) {
 	p.wg.Add(1)
 	go p.monitorLoop(ctx, b)
 }
 
-// Shutdown gracefully stops monitoring
 func (p *SpotifyPlayer) Shutdown() {
 	close(p.shutdown)
 	p.wg.Wait()
@@ -130,10 +127,11 @@ func (p *SpotifyPlayer) handleTick(ctx context.Context, b *bot.Bot) error {
 	return nil
 }
 
-// ---------------------- Spotify Player Hooks Implementation ----------------------
+// ---------------------- Hooks Implementation ----------------------
 
 type cachedBio struct {
 	info          *lastfm.ArtistInfo
+	playing       *spoty.CurrentPlaying
 	expiresAt     time.Time
 	cachedMessage string
 }
@@ -158,21 +156,28 @@ func newSpotifyPlayerHookImpl(lastFmClient *lastfm.Client, onError func(error) e
 	return h
 }
 
-// ---------------------- Event Hooks ----------------------
-
 func (s *spotifyPlayerHookImpl) OnNothingPlaying(ctx context.Context, b *bot.Bot) {
+	if b == nil {
+		return
+	}
 	msg := s.buildIdleMessage()
 	s.sendToBot(ctx, b, nil, msg)
 }
 
 func (s *spotifyPlayerHookImpl) OnNewTrackPlayed(ctx context.Context, b *bot.Bot, track *spoty.CurrentPlaying) {
-	bio := s.fetchArtistInfoWithCache(ctx, track.Artist)
+	if b == nil || track == nil {
+		return
+	}
+	bio := s.fetchArtistInfoWithCache(ctx, track)
 	msg := s.buildMessage(track, bio)
 	s.sendToBot(ctx, b, track, msg)
 }
 
 func (s *spotifyPlayerHookImpl) OnOldTrackStillPlaying(ctx context.Context, b *bot.Bot, track *spoty.CurrentPlaying) {
-	cached, _ := s.getCachedBio(track.Artist)
+	if b == nil || track == nil {
+		return
+	}
+	cached, _ := s.getCachedBio(track.ArtistID)
 	var bio *lastfm.ArtistInfo
 	if cached != nil {
 		bio = cached.info
@@ -183,8 +188,9 @@ func (s *spotifyPlayerHookImpl) OnOldTrackStillPlaying(ctx context.Context, b *b
 
 // ---------------------- Caching ----------------------
 
-func (s *spotifyPlayerHookImpl) fetchArtistInfoWithCache(ctx context.Context, artist string) *lastfm.ArtistInfo {
-	if cached, found := s.getCachedBio(artist); found {
+func (s *spotifyPlayerHookImpl) fetchArtistInfoWithCache(ctx context.Context, track *spoty.CurrentPlaying) *lastfm.ArtistInfo {
+	if cached, found := s.getCachedBio(track.ArtistID); found {
+		cached.cachedMessage = s.formatCachedMessage(cached.info, track)
 		return cached.info
 	}
 
@@ -193,52 +199,53 @@ func (s *spotifyPlayerHookImpl) fetchArtistInfoWithCache(ctx context.Context, ar
 
 	langs := []string{"en", "ru"}
 	for _, lang := range langs {
-		info, err := s.lastFmClient.ArtistGetInfo(ctxTimeout, artist, lang)
+		info, err := s.lastFmClient.ArtistGetInfo(ctxTimeout, track.Artist, lang)
 		if err != nil {
 			if s.onError != nil {
-				s.onError(fmt.Errorf("fetch artist info %s: %w", artist, err))
+				s.onError(fmt.Errorf("fetch artist info %s: %w", track.Artist, err))
 			}
 			continue
 		}
 		if info != nil && info.BioSummaryWithoutLinks() != "" {
-			s.cacheBio(artist, info)
+			s.cacheBio(info, track)
 			return info
 		}
 	}
 
-	s.cacheBio(artist, nil)
+	s.cacheBio(nil, track)
 	return nil
 }
 
-func (s *spotifyPlayerHookImpl) getCachedBio(artist string) (*cachedBio, bool) {
+func (s *spotifyPlayerHookImpl) getCachedBio(artistId string) (*cachedBio, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	cached, exists := s.bioCache[artist]
+	cached, exists := s.bioCache[artistId]
 	if !exists || time.Now().After(cached.expiresAt) {
 		return nil, false
 	}
 	return cached, true
 }
 
-func (s *spotifyPlayerHookImpl) cacheBio(artist string, info *lastfm.ArtistInfo) {
-	message := s.formatCachedMessage(artist, info)
+func (s *spotifyPlayerHookImpl) cacheBio(info *lastfm.ArtistInfo, playing *spoty.CurrentPlaying) {
+	message := s.formatCachedMessage(info, playing)
 
 	s.mu.Lock()
-	s.bioCache[artist] = &cachedBio{
+	defer s.mu.Unlock()
+	s.bioCache[playing.ArtistID] = &cachedBio{
 		info:          info,
 		expiresAt:     time.Now().Add(bioCacheTTL),
 		cachedMessage: message,
+		playing:       playing,
 	}
-	s.mu.Unlock()
 }
 
-func (s *spotifyPlayerHookImpl) formatCachedMessage(artist string, info *lastfm.ArtistInfo) string {
+func (s *spotifyPlayerHookImpl) formatCachedMessage(info *lastfm.ArtistInfo, playing *spoty.CurrentPlaying) string {
 	var message string
 	if info != nil {
-		message = s.formatBioAndLinks(info, artist)
+		message = s.formatBioAndLinks(info, playing.ID)
 	} else {
-		message = s.formatDefaultLinks(artist)
+		message = s.formatDefaultLinks(playing.ID)
 	}
 	message += "\n\n" + shared.TgText(shared.TotalRandomEmoji())
 	return message
@@ -297,31 +304,21 @@ func (s *spotifyPlayerHookImpl) buildMessage(track *spoty.CurrentPlaying, bio *l
 	return sb.String()
 }
 
-func (s *spotifyPlayerHookImpl) formatTrackInfo(track *spoty.CurrentPlaying) string {
-	status := "▶️"
-	if !track.Playing {
-		status = "⏸️"
-	}
-	trackName := fmt.Sprintf("`%s`", shared.TgText(shared.EscapeMarkdownV2(track.Artist+" - "+track.Name)))
-	progress := fmt.Sprintf("%s %s %s",
-		s.formatTime(track.ProgressMs),
-		s.formatProgressBar(track.ProgressMs, track.DurationMs),
-		s.formatTime(track.DurationMs))
-
-	return fmt.Sprintf("%s %s\n\n%s\n\n🔥 %d / 100",
-		status, trackName, shared.TgText(progress), track.FullTrack.Popularity)
-}
-
 func (s *spotifyPlayerHookImpl) formatBioSection(track *spoty.CurrentPlaying, bio *lastfm.ArtistInfo) string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cached, ok := s.bioCache[track.ArtistID]
 
-	if cached, ok := s.bioCache[track.Artist]; ok && cached != nil {
+	if ok && cached != nil {
+		if cached.playing.ID != track.ID {
+			cached.cachedMessage = s.formatCachedMessage(cached.info, track)
+			cached.playing = track
+		}
 		return cached.cachedMessage
 	} else if bio != nil {
-		return s.formatBioAndLinks(bio, track.Artist)
+		return s.formatCachedMessage(bio, track)
 	}
-	return s.formatDefaultLinks(track.Artist)
+	return s.formatDefaultLinks(track.ID)
 }
 
 // ---------------------- Utilities ----------------------
@@ -353,6 +350,23 @@ func (s *spotifyPlayerHookImpl) sendToBot(ctx context.Context, b *bot.Bot, track
 	}
 }
 
+// ---------------------- Formatting Helpers ----------------------
+
+func (s *spotifyPlayerHookImpl) formatTrackInfo(track *spoty.CurrentPlaying) string {
+	status := "▶️"
+	if !track.Playing {
+		status = "⏸️"
+	}
+	trackName := fmt.Sprintf("`%s`", shared.TgText(shared.EscapeMarkdownV2(track.Artist+" - "+track.Name)))
+	progress := fmt.Sprintf("%s %s %s",
+		s.formatTime(track.ProgressMs),
+		s.formatProgressBar(track.ProgressMs, track.DurationMs),
+		s.formatTime(track.DurationMs))
+
+	return fmt.Sprintf("%s %s\n\n%s\n\n🔥 %d / 100",
+		status, trackName, shared.TgText(progress), track.FullTrack.Popularity)
+}
+
 func (s *spotifyPlayerHookImpl) formatTime(ms int) string {
 	totalSec := ms / 1000
 	return fmt.Sprintf("%02d:%02d", totalSec/60, totalSec%60)
@@ -370,9 +384,9 @@ func (s *spotifyPlayerHookImpl) formatProgressBar(progressMs, durationMs int) st
 	return fmt.Sprintf("[%s%s]", strings.Repeat("█", progressBlocks), strings.Repeat("░", blocks-progressBlocks))
 }
 
-func (s *spotifyPlayerHookImpl) formatBioAndLinks(info *lastfm.ArtistInfo, artist string) string {
+func (s *spotifyPlayerHookImpl) formatBioAndLinks(info *lastfm.ArtistInfo, trackId string) string {
 	if info == nil {
-		return s.formatDefaultLinks(artist)
+		return s.formatDefaultLinks(trackId)
 	}
 	var sb strings.Builder
 	bioText := s.formatArtistBio(info)
@@ -380,7 +394,7 @@ func (s *spotifyPlayerHookImpl) formatBioAndLinks(info *lastfm.ArtistInfo, artis
 		sb.WriteString(bioText)
 		sb.WriteString("\n\n")
 	}
-	sb.WriteString(fmt.Sprintf("🔗 %s", shared.TgLink("Spotify", "https://open.spotify.com/artist/"+artist)))
+	sb.WriteString(fmt.Sprintf("🔗 %s", shared.TgLink("Spotify", "https://open.spotify.com/track/"+trackId)))
 	if info.Artist.URL != "" {
 		sb.WriteString("\n")
 		sb.WriteString(fmt.Sprintf("🔗 %s", shared.TgLink("Last.fm", info.Artist.URL)))
@@ -388,8 +402,8 @@ func (s *spotifyPlayerHookImpl) formatBioAndLinks(info *lastfm.ArtistInfo, artis
 	return strings.TrimSpace(sb.String())
 }
 
-func (s *spotifyPlayerHookImpl) formatDefaultLinks(artist string) string {
-	return fmt.Sprintf("🔗 %s", shared.TgLink("Spotify", "https://open.spotify.com/artist/"+artist))
+func (s *spotifyPlayerHookImpl) formatDefaultLinks(trackId string) string {
+	return fmt.Sprintf("🔗 %s", shared.TgLink("Spotify", "https://open.spotify.com/track/"+trackId))
 }
 
 func (s *spotifyPlayerHookImpl) formatArtistBio(info *lastfm.ArtistInfo) string {
@@ -403,8 +417,6 @@ func (s *spotifyPlayerHookImpl) formatArtistBio(info *lastfm.ArtistInfo) string 
 	bio = smartTruncateSentences(bio, 300)
 	return shared.TgText(shared.EscapeMarkdownV2(bio))
 }
-
-// ---------------------- Text Helpers ----------------------
 
 var sentenceEnd = regexp.MustCompile(`(?m)(.*?[.!?])\s*`)
 

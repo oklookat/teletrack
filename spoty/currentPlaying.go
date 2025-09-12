@@ -12,6 +12,7 @@ type CurrentPlaying struct {
 	Name       string
 	Artists    string
 	Artist     string
+	ArtistID   string
 	ProgressMs int
 	DurationMs int
 	Link       string
@@ -43,25 +44,32 @@ func GetCurrentPlaying(ctx context.Context, cl *spotify.Client) (*CurrentPlaying
 
 	sTrack := curPlay.Item.SimpleTrack
 
+	var artistID string
 	var artistsNames []string
 	for _, ar := range sTrack.Artists {
+		if len(artistID) == 0 {
+			artistID = ar.ID.String()
+		}
 		artistsNames = append(artistsNames, ar.Name)
+	}
+
+	trackID := sTrack.ID.String()
+	if len(artistID) == 0 || len(artistsNames) == 0 || len(trackID) == 0 {
+		return nil, nil
 	}
 
 	curPlaying := &CurrentPlaying{
 		ID:         sTrack.ID.String(),
 		Name:       sTrack.Name,
 		Artists:    strings.Join(artistsNames, ", "),
+		Artist:     artistsNames[0],
+		ArtistID:   artistID,
 		DurationMs: int(sTrack.Duration),
 		ProgressMs: int(curPlay.Progress),
 		Link:       spotifyLink,
 		CoverURL:   coverURL,
 		Playing:    curPlay.Playing,
 		FullTrack:  curPlay.Item,
-	}
-
-	if len(artistsNames) > 0 {
-		curPlaying.Artist = artistsNames[0]
 	}
 
 	return curPlaying, nil
