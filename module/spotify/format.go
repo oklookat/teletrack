@@ -15,7 +15,7 @@ func (s *spotifyPlayerHookImpl) formatTrackInfo(track *spoty.CurrentPlaying) str
 	if !track.Playing {
 		status = "⏸️"
 	}
-	trackName := fmt.Sprintf("`%s`", shared.TgText(shared.EscapeMarkdownV2(track.Artist+" - "+track.Name)))
+	trackName := fmt.Sprintf("`%s`", shared.TgText(track.Artist+" - "+track.Name))
 	progress := fmt.Sprintf("%s %s %s",
 		s.formatTime(track.ProgressMs),
 		s.formatProgressBar(track.ProgressMs, track.DurationMs),
@@ -68,7 +68,9 @@ func (s *spotifyPlayerHookImpl) formatArtistBio(info *lastfm.ArtistInfo) string 
 	if info == nil {
 		return ""
 	}
-	bio := regexp.MustCompile(`[ \t]+`).ReplaceAllString(info.BioSummaryWithoutLinks(), " ")
+	reMultiTabs := regexp.MustCompile(`\t{2,}`)
+	bio := reMultiTabs.ReplaceAllString(info.BioSummaryWithoutLinks(), "\t")
+	bio = regexp.MustCompile(`[ ]{2,}`).ReplaceAllString(bio, " ")
 	if len(bio) < 20 {
 		return ""
 	}
