@@ -2,6 +2,7 @@ package spotify
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/oklookat/teletrack/lastfm"
@@ -67,10 +68,10 @@ func (s *spotifyPlayerHookImpl) formatArtistBio(info *lastfm.ArtistInfo) string 
 	if info == nil {
 		return ""
 	}
-	bio := strings.Join(strings.Fields(info.BioSummaryWithoutLinks()), " ")
+	bio := regexp.MustCompile(`[ \t]+`).ReplaceAllString(info.BioSummaryWithoutLinks(), " ")
 	if len(bio) < 20 {
 		return ""
 	}
 	bio = smartTruncateSentences(bio, 300)
-	return shared.TgText(shared.EscapeMarkdownV2(bio))
+	return shared.TgText(bio)
 }
