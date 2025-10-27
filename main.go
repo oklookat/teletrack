@@ -9,7 +9,8 @@ import (
 	"strings"
 
 	"github.com/oklookat/teletrack/config"
-	"github.com/oklookat/teletrack/module"
+	"github.com/oklookat/teletrack/module/spotify"
+
 	"github.com/oklookat/teletrack/spoty"
 	"github.com/oklookat/teletrack/telegram"
 )
@@ -48,7 +49,7 @@ func main() {
 	// Initialize Telegram bot
 	var tgBot *telegram.TelegramBot
 	tgBot, err := telegram.NewTelegramBot(ctx, config.C.Telegram, []telegram.Module{
-		module.NewSpotifyPlayer(spotifyCl, func(err error) error {
+		spotify.NewPlayer(spotifyCl, func(err error) error {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return err
 			}
