@@ -1,0 +1,3 @@
+*.json
+inventory.yml
+!*.example.*

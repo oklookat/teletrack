@@ -1,12 +1,12 @@
 [Unit]
-Description=teletrack bot
+Description={{ teletrack_description | default("teletrack bot") }}
 After=network.target
 Wants=network-online.target
 
 [Service]
-WorkingDirectory=/opt/teletrack/bin
+WorkingDirectory={{ bin_dir }}
 Type=simple
-ExecStart=/opt/teletrack/bin/teletrack
+ExecStart={{ bin_dir }}/teletrack
 Restart=on-failure
 RestartSec=30
 StandardOutput=journal

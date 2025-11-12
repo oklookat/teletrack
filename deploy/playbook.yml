@@ -1,0 +1,166 @@
+---
+- name: "teletrack: build and deployment"
+  hosts: all
+  become: true
+  tasks:
+    # Build locally
+    - name: Check if Go is available
+      become: false
+      delegate_to: localhost
+      command: go version
+      register: go_check
+      failed_when: go_check.rc != 0
+      changed_when: false
+      tags: build
+
+    - name: Clean old artifacts
+      become: false
+      delegate_to: localhost
+      file:
+        path: "{{ project_dir }}/{{ item }}"
+        state: absent
+      loop:
+        - "{{ teletrack_dir }}"
+        - "{{ tar_gz }}"
+      tags: build
+
+    - name: Build teletrack binary
+      become: false
+      delegate_to: localhost
+      command: go build -o {{ teletrack_dir }}/teletrack
+      args:
+        chdir: "{{ project_dir }}"
+      tags: build
+
+    - name: Copy config file
+      become: false
+      delegate_to: localhost
+      copy:
+        src: "{{ project_dir }}/config.prod.json"
+        dest: "{{ project_dir }}/{{ teletrack_dir }}/config.json"
+      tags: build
+
+    - name: Create deployment archive
+      become: false
+      delegate_to: localhost
+      archive:
+        path: "{{ project_dir }}/{{ teletrack_dir }}"
+        dest: "{{ project_dir }}/{{ tar_gz }}"
+        format: gz
+      tags: build
+
+    - name: Remove temporary build folder
+      become: false
+      delegate_to: localhost
+      file:
+        path: "{{ project_dir }}/{{ teletrack_dir }}"
+        state: absent
+      tags: build
+
+    # Remove old version (uninstall)
+    - name: Stop and disable old teletrack service if exists
+      ignore_errors: true
+      systemd:
+        name: "{{ service_name }}"
+        state: stopped
+        enabled: false
+      tags: uninstall
+
+    - name: Remove previous installation
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ install_dir }}"
+        - "{{ service_path }}"
+      tags: uninstall
+
+    - name: Reload systemd after cleanup
+      systemd:
+        daemon_reload: true
+      tags: uninstall
+
+    # Upload and extract new version
+    - name: Copy teletrack archive to server
+      become: false
+      copy:
+        src: "{{ project_dir }}/{{ tar_gz }}"
+        dest: "/tmp/{{ tar_gz }}"
+      tags: deploy
+
+    - name: Extract archive to /tmp
+      unarchive:
+        src: "/tmp/{{ tar_gz }}"
+        dest: "/tmp"
+        remote_src: true
+      tags: deploy
+
+    - name: Create installation directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - "{{ bin_dir }}"
+        - "{{ cfg_dir }}"
+      tags: install
+
+    - name: Copy binary to /opt/teletrack/bin
+      copy:
+        src: "/tmp/{{ teletrack_dir }}/teletrack"
+        dest: "{{ bin_dir }}/teletrack"
+        mode: "0755"
+        remote_src: true
+      tags: install
+
+    - name: Copy configuration to /opt/teletrack/bin
+      copy:
+        src: "/tmp/{{ teletrack_dir }}/config.json"
+        dest: "{{ cfg_dir }}/config.json"
+        mode: "0644"
+        remote_src: true
+      tags: install
+
+    # Create and manage systemd unit
+    - name: Install teletrack systemd unit file
+      template:
+        src: "teletrack.service.j2"
+        dest: "{{ service_path }}"
+        mode: "0644"
+      tags: install
+
+    - name: Reload systemd daemon
+      systemd:
+        daemon_reload: true
+      tags: install
+
+    - name: Enable and restart teletrack service
+      systemd:
+        name: "{{ service_name }}"
+        enabled: true
+        state: restarted
+      tags: install
+
+    # Cleanup
+    - name: Remove temporary files from /tmp
+      file:
+        path: "/tmp/{{ item }}"
+        state: absent
+      loop:
+        - "{{ tar_gz }}"
+        - "{{ teletrack_dir }}"
+      tags: cleanup
+
+    - name: Remove local archive
+      become: false
+      delegate_to: localhost
+      file:
+        path: "{{ project_dir }}/{{ tar_gz }}"
+        state: absent
+      tags: cleanup
+
+    - name: Print success message
+      debug:
+        msg: "✅ teletrack successfully built, deployed, and started!"

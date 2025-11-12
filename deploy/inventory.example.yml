@@ -1,0 +1,17 @@
+all:
+  hosts:
+    vps:
+      ansible_host: 192.168.1.1
+      ansible_port: SSH_PORT
+      ansible_user: "NOT_ROOT_USER"
+      ansible_ssh_private_key_file: ~/.ssh/id_rsa
+      ansible_become_password: "USER_PASSWORD"
+      #
+      project_dir: "{{ playbook_dir }}/../"
+      teletrack_dir: "teletrack-prod"
+      tar_gz: "teletrack.tar.gz"
+      install_dir: "/opt/teletrack"
+      bin_dir: "{{ install_dir }}/bin"
+      cfg_dir: "{{ install_dir }}/bin"
+      service_name: "teletrack.service"
+      service_path: "/etc/systemd/system/{{ service_name }}"

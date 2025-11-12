@@ -1,0 +1,25 @@
+{
+    "telegram": {
+        "token": "1",
+        "userID": 2,
+        "chatID": "@3",
+        "serviceChatID": "2",
+        "messageID": 1
+    },
+    "lastFm": {
+        "apiKey": "a",
+        "username": "b"
+    },
+    "spotify": {
+        "authorize": false,
+        "redirectURI": "http://127.0.0.1:3000/spotify",
+        "clientID": "123",
+        "clientSecret": "456",
+        "token": {
+            "access_token": "e",
+            "token_type": "Bearer",
+            "refresh_token": "e",
+            "expiry": "e"
+        }
+    }
+}
