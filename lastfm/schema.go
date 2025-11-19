@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 )
 
@@ -209,26 +208,6 @@ type ArtistInfo struct {
 			Content   string `json:"content"`
 		} `json:"bio"`
 	} `json:"artist"`
-}
-
-// BioSummaryWithoutLinks returns the artist bio summary without HTML links.
-func (a ArtistInfo) BioSummaryWithoutLinks() string {
-	return cleanAllLinks(a.Artist.Bio.Summary)
-}
-
-// BioContentWithoutLinks returns the artist bio content without HTML links.
-func (a ArtistInfo) BioContentWithoutLinks() string {
-	return cleanAllLinks(a.Artist.Bio.Content)
-}
-
-// cleanAllLinks removes all anchor tags from the input text.
-func cleanAllLinks(text string) string {
-	if text == "" {
-		return ""
-	}
-	hrefRe := regexp.MustCompile(`<a\s+href="[^"]+">.*?</a>`)
-	cleanedText := hrefRe.ReplaceAllString(text, "")
-	return strings.TrimSpace(cleanedText)
 }
 
 // Validate checks if the Artist struct has required fields.

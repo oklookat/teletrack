@@ -31,7 +31,8 @@ func (c *Client) ArtistGetInfo(ctx context.Context, artistName, lang string) (*A
 	query.Set("format", "json")
 	apiURL.RawQuery = query.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL.String(), nil)
+	apiUrl := apiURL.String()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiUrl, nil)
 	if err != nil {
 		return nil, err
 	}

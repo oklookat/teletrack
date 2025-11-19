@@ -5,27 +5,56 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oklookat/teletrack/lastfm"
 	"github.com/oklookat/teletrack/shared"
 	"github.com/oklookat/teletrack/spoty"
 )
 
-const (
-	bioCacheTTL            = 5 * time.Minute
-	artistInfoFetchTimeout = 5 * time.Second
-)
+func buildPlayingMessage(playing *spoty.CurrentPlaying, info *cachedTrackInfo) string {
+	var sb strings.Builder
 
-func (s *spotifyPlayerHookImpl) formatMessage(info *lastfm.ArtistInfo, playing *spoty.CurrentPlaying) string {
-	// base message depending on whether we have bio
-	message := s.formatDefaultLinks(playing.ID)
-	if info != nil {
-		message = s.formatBioAndLinks(info, playing.ID)
+	// Current time.
+	currentTime := shared.TimeToRuWithSeconds(time.Now())
+	sb.WriteString(shared.TgText(currentTime) + "\n\n")
+
+	// Track name.
+	status := "▶️"
+	if !playing.Playing {
+		status = "⏸️"
 	}
-	// append emoji footer
-	return fmt.Sprintf("%s\n\n%s", message, shared.TgText(shared.TotalRandomEmoji()))
+	sb.WriteString(status + " " + info.TrackName + "\n\n")
+
+	// Progress.
+	progress := fmt.Sprintf("%s %s %s",
+		formatTime(playing.ProgressMs),
+		formatProgressBar(playing.ProgressMs, playing.DurationMs),
+		formatTime(playing.DurationMs))
+	sb.WriteString(progress + "\n\n")
+
+	// Popularity.
+	sb.WriteString(info.Popularity + "\n\n")
+
+	// Bio.
+	if len(info.Bio) > 0 {
+		sb.WriteString(info.Bio + "\n\n")
+	}
+
+	// Links.
+	sb.WriteString(info.SpotifyLink + "\n")
+	if len(info.LastFmLink) > 0 {
+		sb.WriteString(info.LastFmLink + "\n\n")
+	} else {
+		sb.WriteString("\n")
+	}
+
+	// Emoji.
+	sb.WriteString(info.Emoji + "\n")
+	// powered by
+	sb.WriteString(shared.TgLink("powered by oklookat/teletrack", "https://github.com/oklookat/teletrack"))
+
+	return sb.String()
 }
 
-func (s *spotifyPlayerHookImpl) buildIdleMessage() string {
+func buildIdleMessage() string {
 	currentTime := shared.TimeToRuWithSeconds(time.Now())
 	links := []string{
 		shared.TgText("✉️ @dvdqr"),
@@ -49,49 +78,19 @@ func (s *spotifyPlayerHookImpl) buildIdleMessage() string {
 	return sb.String()
 }
 
-func (s *spotifyPlayerHookImpl) buildMessage(track *spoty.CurrentPlaying, bio *lastfm.ArtistInfo) string {
-	var sb strings.Builder
-	sb.WriteString(shared.TgText(shared.TimeToRuWithSeconds(time.Now())))
-	sb.WriteString("\n\n")
-	sb.WriteString(s.formatTrackInfo(track))
-
-	// bio section may be empty — handle spacing carefully
-	bioSection := strings.TrimSpace(s.formatBioSection(track, bio))
-	if bioSection != "" {
-		sb.WriteString("\n\n")
-		sb.WriteString(bioSection)
-	}
-
-	// ensure powered-by is on its own paragraph
-	sb.WriteString("\n")
-	sb.WriteString(shared.TgLink("powered by oklookat/teletrack", "https://github.com/oklookat/teletrack"))
-	return sb.String()
+func formatTime(ms int) string {
+	totalSec := ms / 1000
+	return fmt.Sprintf("%02d:%02d", totalSec/60, totalSec%60)
 }
 
-func (s *spotifyPlayerHookImpl) formatBioSection(track *spoty.CurrentPlaying, bio *lastfm.ArtistInfo) string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	cached, ok := s.bioCache[track.ArtistID]
-
-	if ok && cached != nil {
-		if cached.playing == nil || cached.playing.ID != track.ID {
-			cached.cachedMessage = s.formatMessage(cached.info, track)
-			cached.playing = track
-		}
-		return cached.cachedMessage
+func formatProgressBar(progressMs, durationMs int) string {
+	const blocks = 12
+	if durationMs <= 0 {
+		return strings.Repeat("░", blocks)
 	}
-
-	if bio != nil {
-		msg := s.formatMessage(bio, track)
-		// store the generated message in cache for future
-		s.bioCache[track.ArtistID] = &cachedBio{
-			info:          bio,
-			cachedMessage: msg,
-			expiresAt:     time.Now().Add(bioCacheTTL),
-			playing:       track,
-		}
-		return msg
+	progressBlocks := int(float64(progressMs) / float64(durationMs) * blocks)
+	if progressBlocks > blocks {
+		progressBlocks = blocks
 	}
-
-	return s.formatDefaultLinks(track.ID)
+	return fmt.Sprintf("[%s%s]", strings.Repeat("█", progressBlocks), strings.Repeat("░", blocks-progressBlocks))
 }

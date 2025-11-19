@@ -3,10 +3,11 @@ package spotify
 import (
 	"context"
 	"fmt"
-	"sync"
+	"time"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
+	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/oklookat/teletrack/config"
 	"github.com/oklookat/teletrack/lastfm"
 	"github.com/oklookat/teletrack/spoty"
@@ -23,22 +24,19 @@ type SpotifyPlayerHooks interface {
 }
 
 type spotifyPlayerHookImpl struct {
+	shutdown     <-chan struct{}
 	lastFmClient *lastfm.Client
 	onError      func(error) error
-
-	mu       sync.RWMutex
-	bioCache map[string]*cachedBio
-	shutdown <-chan struct{}
+	cachedTracks *expirable.LRU[string, cachedTrackInfo]
 }
 
 func newSpotifyPlayerHookImpl(lastFmClient *lastfm.Client, onError func(error) error, shutdown <-chan struct{}) *spotifyPlayerHookImpl {
 	h := &spotifyPlayerHookImpl{
 		lastFmClient: lastFmClient,
 		onError:      onError,
-		bioCache:     make(map[string]*cachedBio),
 		shutdown:     shutdown,
+		cachedTracks: expirable.NewLRU[string, cachedTrackInfo](50, nil, 10*time.Minute),
 	}
-	// background cache cleaner removed in favor of lazy cleanup in getCachedBio
 	return h
 }
 
@@ -46,7 +44,7 @@ func (s *spotifyPlayerHookImpl) OnNothingPlaying(ctx context.Context, b *bot.Bot
 	if b == nil {
 		return
 	}
-	msg := s.buildIdleMessage()
+	msg := buildIdleMessage()
 	s.sendToBot(ctx, b, nil, msg)
 }
 
@@ -54,50 +52,48 @@ func (s *spotifyPlayerHookImpl) OnNewTrackPlayed(ctx context.Context, b *bot.Bot
 	if b == nil || track == nil {
 		return
 	}
-	bio := s.fetchArtistInfo(ctx, track)
-	msg := s.buildMessage(track, bio)
-	s.sendToBot(ctx, b, track, msg)
+	cached := s.fetchTrackInfo(ctx, track)
+	msg := buildPlayingMessage(track, cached)
+	s.sendToBot(ctx, b, cached, msg)
 }
 
 func (s *spotifyPlayerHookImpl) OnOldTrackStillPlaying(ctx context.Context, b *bot.Bot, track *spoty.CurrentPlaying) {
 	if b == nil || track == nil {
 		return
 	}
-	cached, _ := s.getCachedBio(track.ArtistID)
-	var bio *lastfm.ArtistInfo
-	if cached != nil {
-		bio = cached.info
-	}
-	msg := s.buildMessage(track, bio)
-	s.sendToBot(ctx, b, track, msg)
+	cached := s.fetchTrackInfo(ctx, track)
+	msg := buildPlayingMessage(track, cached)
+	s.sendToBot(ctx, b, cached, msg)
 }
 
-func (s *spotifyPlayerHookImpl) sendToBot(ctx context.Context, b *bot.Bot, track *spoty.CurrentPlaying, msg string) {
+func (s *spotifyPlayerHookImpl) sendToBot(
+	ctx context.Context, b *bot.Bot,
+	cached *cachedTrackInfo,
+	msg string,
+) {
 	if b == nil {
 		return
 	}
-	// compose link preview options
-	opts := &models.LinkPreviewOptions{IsDisabled: bot.True()}
-	if track != nil && track.CoverURL != nil && *track.CoverURL != "" {
-		opts.IsDisabled = bot.False()
-		opts.PreferLargeMedia = bot.True()
-		opts.URL = track.CoverURL
-	}
 
 	params := &bot.EditMessageTextParams{
-		ChatID:             config.C.Telegram.ChatID,
-		MessageID:          config.C.Telegram.MessageID,
-		ParseMode:          models.ParseModeMarkdown,
-		Text:               msg,
-		LinkPreviewOptions: opts,
+		ChatID:    config.C.Telegram.ChatID,
+		MessageID: config.C.Telegram.MessageID,
+		ParseMode: models.ParseModeMarkdown,
+		Text:      msg,
+		LinkPreviewOptions: &models.LinkPreviewOptions{
+			IsDisabled: bot.True(),
+		},
+	}
+	if cached != nil {
+		params.LinkPreviewOptions = &cached.LinkPreviewOptions
 	}
 
 	var sender BotSender = b
 	_, err := sender.EditMessageText(ctx, params)
 	if err != nil && s.onError != nil {
 		id := ""
-		if track != nil {
-			id = track.ID
+		if cached != nil {
+			id = cached.TrackID
 		}
 		s.onError(wrapErr(fmt.Sprintf("sendToBot track %s", id), err))
 	}
