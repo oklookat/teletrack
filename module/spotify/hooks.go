@@ -24,18 +24,20 @@ type SpotifyPlayerHooks interface {
 }
 
 type spotifyPlayerHookImpl struct {
-	shutdown     <-chan struct{}
-	lastFmClient *lastfm.Client
-	onError      func(error) error
-	cachedTracks *expirable.LRU[string, cachedTrackInfo]
+	shutdown      <-chan struct{}
+	lastFmClient  *lastfm.Client
+	onError       func(error) error
+	cachedArtists *expirable.LRU[string, cachedArtistInfo]
+	cachedTracks  *expirable.LRU[string, cachedTrackInfo]
 }
 
 func newSpotifyPlayerHookImpl(lastFmClient *lastfm.Client, onError func(error) error, shutdown <-chan struct{}) *spotifyPlayerHookImpl {
 	h := &spotifyPlayerHookImpl{
-		lastFmClient: lastFmClient,
-		onError:      onError,
-		shutdown:     shutdown,
-		cachedTracks: expirable.NewLRU[string, cachedTrackInfo](50, nil, 10*time.Minute),
+		lastFmClient:  lastFmClient,
+		onError:       onError,
+		shutdown:      shutdown,
+		cachedArtists: expirable.NewLRU[string, cachedArtistInfo](50, nil, 10*time.Minute),
+		cachedTracks:  expirable.NewLRU[string, cachedTrackInfo](50, nil, 10*time.Minute),
 	}
 	return h
 }
@@ -52,23 +54,25 @@ func (s *spotifyPlayerHookImpl) OnNewTrackPlayed(ctx context.Context, b *bot.Bot
 	if b == nil || track == nil {
 		return
 	}
-	cached := s.fetchTrackInfo(ctx, track)
-	msg := buildPlayingMessage(track, cached)
-	s.sendToBot(ctx, b, cached, msg)
+	artistInfo := s.fetchArtistInfo(ctx, track)
+	trackInfo := s.fetchTrackInfo(ctx, track)
+	msg := buildPlayingMessage(track, artistInfo, trackInfo)
+	s.sendToBot(ctx, b, track, msg)
 }
 
 func (s *spotifyPlayerHookImpl) OnOldTrackStillPlaying(ctx context.Context, b *bot.Bot, track *spoty.CurrentPlaying) {
 	if b == nil || track == nil {
 		return
 	}
-	cached := s.fetchTrackInfo(ctx, track)
-	msg := buildPlayingMessage(track, cached)
-	s.sendToBot(ctx, b, cached, msg)
+	artistInfo := s.fetchArtistInfo(ctx, track)
+	trackInfo := s.fetchTrackInfo(ctx, track)
+	msg := buildPlayingMessage(track, artistInfo, trackInfo)
+	s.sendToBot(ctx, b, track, msg)
 }
 
 func (s *spotifyPlayerHookImpl) sendToBot(
 	ctx context.Context, b *bot.Bot,
-	cached *cachedTrackInfo,
+	track *spoty.CurrentPlaying,
 	msg string,
 ) {
 	if b == nil {
@@ -84,16 +88,24 @@ func (s *spotifyPlayerHookImpl) sendToBot(
 			IsDisabled: bot.True(),
 		},
 	}
-	if cached != nil {
-		params.LinkPreviewOptions = &cached.LinkPreviewOptions
+
+	// Link preview.
+	var opts models.LinkPreviewOptions
+	if track != nil && track.CoverURL != nil && *track.CoverURL != "" {
+		opts = models.LinkPreviewOptions{
+			IsDisabled:       bot.False(),
+			PreferLargeMedia: bot.True(),
+			URL:              track.CoverURL,
+		}
+		params.LinkPreviewOptions = &opts
 	}
 
 	var sender BotSender = b
 	_, err := sender.EditMessageText(ctx, params)
 	if err != nil && s.onError != nil {
 		id := ""
-		if cached != nil {
-			id = cached.TrackID
+		if track != nil {
+			id = track.ID
 		}
 		s.onError(wrapErr(fmt.Sprintf("sendToBot track %s", id), err))
 	}

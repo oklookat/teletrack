@@ -9,7 +9,7 @@ import (
 	"github.com/oklookat/teletrack/spoty"
 )
 
-func buildPlayingMessage(playing *spoty.CurrentPlaying, info *cachedTrackInfo) string {
+func buildPlayingMessage(playing *spoty.CurrentPlaying, artistInfo *cachedArtistInfo, trackInfo *cachedTrackInfo) string {
 	var sb strings.Builder
 
 	// Current time.
@@ -21,7 +21,7 @@ func buildPlayingMessage(playing *spoty.CurrentPlaying, info *cachedTrackInfo) s
 	if !playing.Playing {
 		status = "⏸️"
 	}
-	sb.WriteString(status + " " + info.TrackName + "\n\n")
+	sb.WriteString(status + " " + trackInfo.TrackName + "\n\n")
 
 	// Progress.
 	progress := fmt.Sprintf("%s %s %s",
@@ -31,23 +31,23 @@ func buildPlayingMessage(playing *spoty.CurrentPlaying, info *cachedTrackInfo) s
 	sb.WriteString(progress + "\n\n")
 
 	// Popularity.
-	sb.WriteString(info.Popularity + "\n\n")
+	sb.WriteString(trackInfo.Popularity + "\n\n")
 
 	// Bio.
-	if len(info.Bio) > 0 {
-		sb.WriteString(info.Bio + "\n\n")
+	if len(artistInfo.Bio) > 0 {
+		sb.WriteString(artistInfo.Bio + "\n\n")
 	}
 
 	// Links.
-	sb.WriteString(info.SpotifyLink + "\n")
-	if len(info.LastFmLink) > 0 {
-		sb.WriteString(info.LastFmLink + "\n\n")
+	sb.WriteString(trackInfo.SpotifyLink + "\n")
+	if len(artistInfo.LastFmLink) > 0 {
+		sb.WriteString(artistInfo.LastFmLink + "\n\n")
 	} else {
 		sb.WriteString("\n")
 	}
 
 	// Emoji.
-	sb.WriteString(info.Emoji + "\n")
+	sb.WriteString(trackInfo.Emoji + "\n")
 	// powered by
 	sb.WriteString(shared.TgLink("powered by oklookat/teletrack", "https://github.com/oklookat/teletrack"))
 
