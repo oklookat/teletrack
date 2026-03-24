@@ -75,7 +75,7 @@ func (s *spotifyPlayerHookImpl) sendToBot(
 	track *spoty.CurrentPlaying,
 	msg string,
 ) {
-	if b == nil {
+	if b == nil || track == nil || track.ID == "" {
 		return
 	}
 
@@ -91,7 +91,7 @@ func (s *spotifyPlayerHookImpl) sendToBot(
 
 	// Link preview.
 	var opts models.LinkPreviewOptions
-	if track != nil && track.CoverURL != nil && *track.CoverURL != "" {
+	if track.CoverURL != nil && *track.CoverURL != "" {
 		opts = models.LinkPreviewOptions{
 			IsDisabled:       bot.False(),
 			PreferLargeMedia: bot.True(),
@@ -100,13 +100,9 @@ func (s *spotifyPlayerHookImpl) sendToBot(
 		params.LinkPreviewOptions = &opts
 	}
 
-	var sender BotSender = b
-	_, err := sender.EditMessageText(ctx, params)
+	_, err := b.EditMessageText(ctx, params)
 	if err != nil && s.onError != nil {
-		id := ""
-		if track != nil {
-			id = track.ID
-		}
+		id := track.ID
 		s.onError(wrapErr(fmt.Sprintf("sendToBot track %s", id), err))
 	}
 }
