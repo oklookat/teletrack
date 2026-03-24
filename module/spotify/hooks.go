@@ -29,6 +29,8 @@ type spotifyPlayerHookImpl struct {
 	onError       func(error) error
 	cachedArtists *expirable.LRU[string, cachedArtistInfo]
 	cachedTracks  *expirable.LRU[string, cachedTrackInfo]
+
+	prevMessage string
 }
 
 func newSpotifyPlayerHookImpl(lastFmClient *lastfm.Client, onError func(error) error, shutdown <-chan struct{}) *spotifyPlayerHookImpl {
@@ -75,7 +77,11 @@ func (s *spotifyPlayerHookImpl) sendToBot(
 	track *spoty.CurrentPlaying,
 	msg string,
 ) {
-	if b == nil || track == nil || track.ID == "" {
+	if b == nil {
+		return
+	}
+
+	if msg == s.prevMessage {
 		return
 	}
 
@@ -89,20 +95,26 @@ func (s *spotifyPlayerHookImpl) sendToBot(
 		},
 	}
 
-	// Link preview.
-	var opts models.LinkPreviewOptions
-	if track.CoverURL != nil && *track.CoverURL != "" {
-		opts = models.LinkPreviewOptions{
-			IsDisabled:       bot.False(),
-			PreferLargeMedia: bot.True(),
-			URL:              track.CoverURL,
+	trackID := "???"
+
+	if track != nil && track.ID != "" {
+		trackID = track.ID
+		// Link preview.
+		var opts models.LinkPreviewOptions
+		if track.CoverURL != nil && *track.CoverURL != "" {
+			opts = models.LinkPreviewOptions{
+				IsDisabled:       bot.False(),
+				PreferLargeMedia: bot.True(),
+				URL:              track.CoverURL,
+			}
+			params.LinkPreviewOptions = &opts
 		}
-		params.LinkPreviewOptions = &opts
 	}
 
 	_, err := b.EditMessageText(ctx, params)
 	if err != nil && s.onError != nil {
-		id := track.ID
-		s.onError(wrapErr(fmt.Sprintf("sendToBot track %s", id), err))
+		s.onError(wrapErr(fmt.Sprintf("sendToBot track %s", trackID), err))
 	}
+
+	s.prevMessage = msg
 }
