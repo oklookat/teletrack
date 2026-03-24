@@ -30,9 +30,6 @@ func buildPlayingMessage(playing *spoty.CurrentPlaying, artistInfo *cachedArtist
 		formatTime(playing.DurationMs))
 	sb.WriteString(progress + "\n\n")
 
-	// Popularity.
-	sb.WriteString(trackInfo.Popularity + "\n\n")
-
 	// Bio.
 	if len(artistInfo.Bio) > 0 {
 		sb.WriteString(artistInfo.Bio + "\n\n")

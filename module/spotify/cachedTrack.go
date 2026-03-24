@@ -15,7 +15,6 @@ func (s *spotifyPlayerHookImpl) fetchTrackInfo(ctx context.Context, track *spoty
 
 	cached := cachedTrackInfo{
 		TrackName:   fmt.Sprintf("`%s`", shared.TgText(track.Artist+" - "+track.Name)),
-		Popularity:  fmt.Sprintf("🔥 %d / 100", track.FullTrack.Popularity),
 		SpotifyLink: fmt.Sprintf("🔗 %s", shared.TgLink("Spotify", "https://open.spotify.com/track/"+track.ID)),
 		Emoji:       shared.TgText(shared.TotalRandomEmoji()),
 	}
@@ -26,7 +25,6 @@ func (s *spotifyPlayerHookImpl) fetchTrackInfo(ctx context.Context, track *spoty
 
 type cachedTrackInfo struct {
 	TrackName   string
-	Popularity  string
 	SpotifyLink string
 	Emoji       string
 }
