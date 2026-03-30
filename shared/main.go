@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -85,9 +86,20 @@ func TgText(text string) string {
 	return bot.EscapeMarkdownUnescaped(text)
 }
 
+// SanitizeCodeSpan prepares string to put inside `code span`
+func SanitizeCodeSpan(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, "`", "\\`")
+	return s
+}
+
 // TgLink builds a MarkdownV2 link. The description is escaped but the URL is left raw
 // because escaping the URL may break the link (Telegram accepts raw URLs inside parentheses).
 func TgLink(description, link string) string {
+	// Only ( and ) can break the MarkdownV2 link syntax inside the URL part.
+	// Full escaping would break the URL itself, so we escape only these two.
+	link = strings.ReplaceAll(link, `(`, `\(`)
+	link = strings.ReplaceAll(link, `)`, `\)`)
 	return fmt.Sprintf("[%s](%s)", bot.EscapeMarkdownUnescaped(description), link)
 }
 
