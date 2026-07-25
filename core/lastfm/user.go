@@ -1,8 +1,8 @@
 package lastfm
 
 import (
+	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strconv"
 )
@@ -20,21 +20,14 @@ const (
 )
 
 // UserGetTopTracks fetches top tracks for a user from Last.fm.
-func (c *Client) UserGetTopTracks(user string, period *UserGetTopTracksPeriod, limit *int, page *int) (*UserGetTopTracksResponse, error) {
+func (c *Client) UserGetTopTracks(ctx context.Context, user string, period *UserGetTopTracksPeriod, limit *int, page *int) (*UserGetTopTracksResponse, error) {
 	const method = "user.getTopTracks"
-
-	if user == "" {
-		return nil, errors.New("user is required")
-	}
-	if c.APIKey == "" {
-		return nil, errors.New("API key is required")
-	}
 
 	apiURL := *_apiURL
 	query := apiURL.Query()
 	query.Set("method", method)
 	query.Set("user", user)
-	query.Set("api_key", c.APIKey)
+	query.Set("api_key", c.config.APIKey)
 
 	if limit != nil {
 		query.Set("limit", strconv.Itoa(*limit))
@@ -49,7 +42,11 @@ func (c *Client) UserGetTopTracks(user string, period *UserGetTopTracksPeriod, l
 	query.Set("format", "json")
 	apiURL.RawQuery = query.Encode()
 
-	resp, err := c.HTTP.Get(apiURL.String())
+	req, err := http.NewRequest(http.MethodGet, apiURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.do(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -72,21 +69,14 @@ func (c *Client) UserGetTopTracks(user string, period *UserGetTopTracksPeriod, l
 }
 
 // UserGetTopArtists fetches top artists for a user from Last.fm.
-func (c *Client) UserGetTopArtists(user string, period *UserGetTopTracksPeriod, limit *int, page *int) (*UserGetTopArtistsResponse, error) {
+func (c *Client) UserGetTopArtists(ctx context.Context, user string, period *UserGetTopTracksPeriod, limit *int, page *int) (*UserGetTopArtistsResponse, error) {
 	const method = "user.getTopArtists"
-
-	if user == "" {
-		return nil, errors.New("user is required")
-	}
-	if c.APIKey == "" {
-		return nil, errors.New("API key is required")
-	}
 
 	apiURL := *_apiURL
 	query := apiURL.Query()
 	query.Set("method", method)
 	query.Set("user", user)
-	query.Set("api_key", c.APIKey)
+	query.Set("api_key", c.config.APIKey)
 
 	if limit != nil {
 		query.Set("limit", strconv.Itoa(*limit))
@@ -101,7 +91,11 @@ func (c *Client) UserGetTopArtists(user string, period *UserGetTopTracksPeriod, 
 	query.Set("format", "json")
 	apiURL.RawQuery = query.Encode()
 
-	resp, err := c.HTTP.Get(apiURL.String())
+	req, err := http.NewRequest(http.MethodGet, apiURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.do(ctx, req)
 	if err != nil {
 		return nil, err
 	}

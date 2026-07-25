@@ -4,39 +4,43 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
-	"github.com/oklookat/teletrack/config"
 )
 
-type Module interface {
-	Handle(ctx context.Context, b *bot.Bot)
+type Commander interface {
+	Command() string
+	Handler(ctx context.Context, bot *TelegramBot, args []string) error
 }
 
 type TelegramBot struct {
-	cfg    *config.Telegram
+	cfg    *Config
 	bot    *bot.Bot
 	ready  bool
-	stopCh chan struct{}
+	cancel context.CancelFunc
+
+	commands map[string]Commander
 }
 
 // NewTelegramBot initializes and starts the bot
-func NewTelegramBot(ctx context.Context, tgCfg *config.Telegram, modules []Module) (*TelegramBot, error) {
+func NewTelegramBot(ctx context.Context, cancel context.CancelFunc, cfg *Config) (*TelegramBot, error) {
 	tg := &TelegramBot{
-		cfg:    tgCfg,
-		ready:  tgCfg.UserID > 0 && len(tgCfg.ServiceChatID) > 0,
-		stopCh: make(chan struct{}),
+		cfg:      cfg,
+		ready:    cfg.UserID > 0 && len(cfg.ServiceChatID) > 0,
+		cancel:   cancel,
+		commands: make(map[string]Commander),
 	}
 
-	// Initialize bot with default handler
-	b, err := bot.New(tgCfg.Token, bot.WithDefaultHandler(tg.handleInit))
+	b, err := bot.New(cfg.Token, bot.WithDefaultHandler(tg.defaultHandler))
 	if err != nil {
 		return nil, err
 	}
 	tg.bot = b
 
-	// Start the bot in a goroutine
+	tg.RegisterCommand(&StopCommand{})
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -46,22 +50,20 @@ func NewTelegramBot(ctx context.Context, tgCfg *config.Telegram, modules []Modul
 		b.Start(ctx)
 	}()
 
-	// Attach modules
-	for _, m := range modules {
-		m.Handle(ctx, b)
-	}
-
 	return tg, nil
 }
 
-// handleInit is the default handler for the bot
-func (tg *TelegramBot) handleInit(ctx context.Context, b *bot.Bot, update *models.Update) {
+func (tg *TelegramBot) Stop() {
+	tg.cancel()
+}
+
+func (tg *TelegramBot) RegisterCommand(cmd Commander) {
+	tg.commands[cmd.Command()] = cmd
+}
+
+func (tg *TelegramBot) defaultHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	chatID := getChatIDByUpdate(update)
 	userID := getUserIDByUpdate(update)
-
-	if chatID == nil && userID == nil {
-		return
-	}
 
 	if !tg.ready {
 		if chatID != nil {
@@ -80,24 +82,49 @@ func (tg *TelegramBot) handleInit(ctx context.Context, b *bot.Bot, update *model
 		return
 	}
 
-	respMsg := "All good."
-	isStop := update.Message.Text == "/stop"
-	if isStop {
-		respMsg = "Bot stopped."
+	text := strings.TrimSpace(update.Message.Text)
+	if text == "" {
+		return
 	}
 
-	if chatID != nil {
-		if _, err := b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: *chatID,
-			Text:   respMsg,
-		}); err != nil {
-			slog.Error("failed to send message", "err", err)
+	parts := strings.Fields(text)
+	if len(parts) == 0 {
+		return
+	}
+	cmdName := parts[0]
+	args := parts[1:]
+
+	respMsg := "Unknown command. Use /help"
+
+	if cmd, ok := tg.commands[cmdName]; ok {
+		if err := cmd.Handler(ctx, tg, args); err != nil {
+			respMsg = fmt.Sprintf("Exec error %s: %v", cmdName, err)
+		} else {
+			respMsg = "Done ✅"
 		}
+	} else if cmdName == "/help" {
+		respMsg = tg.helpMessage()
 	}
 
-	if isStop {
-		close(tg.stopCh)
+	if _, err := b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: *chatID,
+		Text:   respMsg,
+	}); err != nil {
+		slog.Error("failed to send message", "err", err)
 	}
+}
+
+func (tg *TelegramBot) helpMessage() string {
+	var sb strings.Builder
+	sb.WriteString("Commands:\n\n")
+
+	for name := range tg.commands {
+		sb.WriteString(name)
+		sb.WriteString("\n")
+	}
+
+	sb.WriteString("\nExample: /wake mycomputer")
+	return sb.String()
 }
 
 // SendError sends a message to the service chat about an error
@@ -113,11 +140,6 @@ func (tg *TelegramBot) SendError(ctx context.Context, err error) {
 	}); sendErr != nil {
 		slog.Error("failed to send error message", "err", sendErr)
 	}
-}
-
-// StopChannel returns a channel that will be closed when a stop command is received
-func (tg *TelegramBot) StopChannel() <-chan struct{} {
-	return tg.stopCh
 }
 
 func getChatIDByUpdate(update *models.Update) *int64 {

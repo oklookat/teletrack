@@ -1,4 +1,4 @@
-package spoty
+package spotify
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"github.com/zmb3/spotify/v2"
 )
 
-type CurrentPlaying struct {
+type currentPlaying struct {
 	ID         string
 	Name       string
 	Artists    string
@@ -18,11 +18,10 @@ type CurrentPlaying struct {
 	Link       string
 	CoverURL   *string
 	Playing    bool
-
-	FullTrack *spotify.FullTrack
+	FullTrack  *spotify.FullTrack
 }
 
-func GetCurrentPlaying(ctx context.Context, cl *spotify.Client) (*CurrentPlaying, error) {
+func getCurrentPlaying(ctx context.Context, cl *spotify.Client) (*currentPlaying, error) {
 	curPlay, err := cl.PlayerCurrentlyPlaying(ctx, _market)
 	if err != nil {
 		return nil, err
@@ -55,7 +54,7 @@ func GetCurrentPlaying(ctx context.Context, cl *spotify.Client) (*CurrentPlaying
 		artistsNames = append(artistsNames, ar.Name)
 	}
 
-	curPlaying := &CurrentPlaying{
+	curPlaying := &currentPlaying{
 		ID:         sTrack.ID.String(),
 		Name:       sTrack.Name,
 		Artists:    strings.Join(artistsNames, ", "),

@@ -9,13 +9,13 @@ import (
 
 // ArtistGetInfo fetches detailed info for an artist from Last.fm.
 // lang is an ISO639-2 code (see https://www.loc.gov/standards/iso639-2/php/code_list.php).
-func (c *Client) ArtistGetInfo(ctx context.Context, artistName, lang string) (*ArtistInfo, error) {
+func (c *Client) artistGetInfo(ctx context.Context, artistName, lang string) (*ArtistInfo, error) {
 	const method = "artist.getInfo"
 
 	if artistName == "" {
 		return nil, errors.New("artist name is required")
 	}
-	if c.APIKey == "" {
+	if c.config.APIKey == "" {
 		return nil, errors.New("API key is required")
 	}
 
@@ -23,7 +23,7 @@ func (c *Client) ArtistGetInfo(ctx context.Context, artistName, lang string) (*A
 	query := apiURL.Query()
 
 	query.Set("method", method)
-	query.Set("api_key", c.APIKey)
+	query.Set("api_key", c.config.APIKey)
 	query.Set("artist", artistName)
 	if lang != "" {
 		query.Set("lang", lang)
@@ -37,7 +37,7 @@ func (c *Client) ArtistGetInfo(ctx context.Context, artistName, lang string) (*A
 		return nil, err
 	}
 
-	resp, err := c.HTTP.Do(req)
+	resp, err := c.do(ctx, req)
 	if err != nil {
 		return nil, err
 	}

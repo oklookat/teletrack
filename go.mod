@@ -8,3 +8,5 @@ require (
 	github.com/zmb3/spotify/v2 v2.4.3
 	golang.org/x/oauth2 v0.36.0
 )
+
+require golang.org/x/time v0.15.0 // indirect

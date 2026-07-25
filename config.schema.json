@@ -1,0 +1,127 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Teletrack Configuration",
+    "type": "object",
+    "required": [
+        "telegram",
+        "lastFm",
+        "spotify",
+        "idleMessage"
+    ],
+    "properties": {
+        "telegram": {
+            "type": "object",
+            "required": [
+                "token",
+                "userID",
+                "chatID",
+                "serviceChatID",
+                "messageID"
+            ],
+            "properties": {
+                "token": {
+                    "type": "string"
+                },
+                "userID": {
+                    "type": "integer"
+                },
+                "chatID": {
+                    "type": "string",
+                    "pattern": "^@"
+                },
+                "serviceChatID": {
+                    "type": "string"
+                },
+                "messageID": {
+                    "type": "integer"
+                }
+            },
+            "additionalProperties": false
+        },
+        "lastFm": {
+            "type": "object",
+            "required": [
+                "apiKey",
+                "username"
+            ],
+            "properties": {
+                "apiKey": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        },
+        "spotify": {
+            "type": "object",
+            "required": [
+                "authorize",
+                "redirectURI",
+                "clientID",
+                "clientSecret"
+            ],
+            "properties": {
+                "authorize": {
+                    "type": "boolean"
+                },
+                "redirectURI": {
+                    "type": "string"
+                },
+                "clientID": {
+                    "type": "string"
+                },
+                "clientSecret": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "object",
+                    "required": [
+                        "access_token",
+                        "token_type",
+                        "refresh_token",
+                        "expiry",
+                        "expires_in"
+                    ],
+                    "properties": {
+                        "access_token": {
+                            "type": "string"
+                        },
+                        "token_type": {
+                            "const": "Bearer"
+                        },
+                        "refresh_token": {
+                            "type": "string"
+                        },
+                        "expiry": {
+                            "type": "string"
+                        },
+                        "expires_in": {
+                            "type": "integer"
+                        }
+                    }
+                }
+            },
+            "allOf": [
+                {
+                    "if": {
+                        "properties": {
+                            "authorize": {
+                                "const": false
+                            }
+                        }
+                    },
+                    "then": {
+                        "required": [
+                            "token"
+                        ]
+                    }
+                }
+            ]
+        },
+        "idleMessage": {
+            "type": "string"
+        }
+    }
+}

@@ -2,85 +2,89 @@ package main
 
 import (
 	"context"
-	"errors"
+	"flag"
+	"log"
 	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/oklookat/teletrack/config"
-	"github.com/oklookat/teletrack/module/spotify"
-
-	"github.com/oklookat/teletrack/spoty"
+	"github.com/oklookat/teletrack/core"
 	"github.com/oklookat/teletrack/telegram"
+	"golang.org/x/oauth2"
+
+	"github.com/oklookat/teletrack/core/lastfm"
+	"github.com/oklookat/teletrack/core/spotify"
 )
 
 func main() {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer cancel()
+	// Flags
+	configPath := flag.String("c", "config.json", "config path")
+	flag.Parse()
 
 	// Boot configuration
-	if err := config.Boot(); err != nil {
+	if err := config.Boot(*configPath); err != nil {
 		if strings.Contains(err.Error(), "config created") {
 			println(err.Error())
 			os.Exit(0)
 		}
-		slog.Error("config boot failed", "err", err)
-		os.Exit(1)
+		chk("config boot failed", err)
 	}
 
-	// Spotify authorization
-	if config.C.Spotify.Authorize {
-		if err := authorizeSpotify(ctx); err != nil {
-			slog.Error("spotify authorization failed", "err", err)
-			os.Exit(1)
-		}
-		slog.Info("Spotify authorization complete")
-		return
-	}
-
-	spotifyCl := spoty.GetClient(
-		config.C.Spotify.RedirectURI,
-		config.C.Spotify.ClientID,
-		config.C.Spotify.ClientSecret,
-		config.C.Spotify.Token,
+	ctx, cancel := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
 	)
+	defer cancel()
 
-	// Initialize Telegram bot
-	var tgBot *telegram.TelegramBot
-	tgBot, err := telegram.NewTelegramBot(ctx, config.C.Telegram, []telegram.Module{
-		spotify.NewPlayer(spotifyCl, func(err error) error {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return err
-			}
-			tgBot.SendError(ctx, err)
-			return nil
-		}),
+	// Telegram bot
+	tgBot, err := telegram.NewTelegramBot(ctx, cancel, config.C.Telegram)
+	if err != nil {
+		chk("failed to start telegram bot", err)
+	}
+
+	// Spotify
+	spoty, err := spotify.New(ctx, config.C.Spotify, func(t *oauth2.Token) error {
+		config.C.Spotify.Authorize = false
+		config.C.Spotify.Token = t
+		return config.C.Save()
 	})
 	if err != nil {
-		slog.Error("failed to start telegram bot", "err", err)
-		os.Exit(1)
+		chk("spotify.New", err)
 	}
 
-	// Wait until context is canceled or /stop is received
-	select {
-	case <-ctx.Done():
-	case <-tgBot.StopChannel():
-		slog.Info("stop signal received")
+	// last.fm
+	lastFm, err := lastfm.NewClient(config.C.LastFm)
+	if err != nil {
+		chk("lastfm.NewClient", err)
 	}
 
-	slog.Info("shutting down application")
+	tgTeletrack := telegram.NewTeletrackMessenger(tgBot)
+	teletrackd := core.New(spoty, lastFm, tgTeletrack, tgTeletrack, config.C.IdleMessage)
+
+	go func() {
+		slog.Info("Starting teletrack...")
+		err := teletrackd.Start(ctx)
+		if err != nil {
+			log.Printf(
+				"teletrack stopped: %v",
+				err,
+			)
+		}
+	}()
+
+	<-ctx.Done()
+
+	teletrackd.Stop()
 }
 
-// authorizeSpotify runs OAuth and saves the token
-func authorizeSpotify(ctx context.Context) error {
-	token, err := spoty.Authorize(ctx, config.C.Spotify, func(url string) {
-		slog.Info("Go to URL for Spotify auth", "url", url)
-	})
-	if err != nil {
-		return err
+func chk(msg string, err error) {
+	if err == nil {
+		return
 	}
-	config.C.Spotify.Authorize = false
-	config.C.Spotify.Token = token
-	return config.C.Save()
+	slog.Error(msg, "error", err)
+	os.Exit(1)
 }
