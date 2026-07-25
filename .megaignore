@@ -1,0 +1,40 @@
+#
+
+-d:.git
+
+## Binaries for programs and plugins
+
+-f:*.exe
+-f:*.exe~
+-f:*.dll
+-f:*.so
+-f:*.dylib
+
+## Test binary, built with `go test -c`
+
+-f:*.test
+
+## Output of the go coverage tool, specifically when used with LiteIDE
+
+-f:*.out
+
+## Dependency directories (remove the comment below to include it)
+
+## -d:vendor
+
+## Go workspace file
+
+-f:go.work
+
+## .env
+
+-f:.env
+
+## -f:*.json
+
++f:config.schema.json
+
+-f:*.gz
+-d:teletrack-prod
+
+-a:teletrack
