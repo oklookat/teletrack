@@ -15,9 +15,8 @@ const (
 	_lastProgressIdle = 6 * time.Second
 
 	_watermarkLink = "https://github.com/oklookat/teletrack"
+	_watermark     = "powered by oklookat/teletrack"
 )
-
-var _watermark = "powered by oklookat/teletrack"
 
 type Messenger interface {
 	UpdatePlaying(context.Context, *PlayingMessage) error
