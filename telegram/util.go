@@ -2,7 +2,7 @@ package telegram
 
 import (
 	"fmt"
-	"regexp"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -30,37 +30,46 @@ func tgLink(description, link string) string {
 	return fmt.Sprintf("[%s](%s)", bot.EscapeMarkdownUnescaped(description), link)
 }
 
-// TimeToRu formats time in Moscow timezone (MSK). Falls back to local time if loading the location fails.
-func timeToRu(t time.Time) string {
+var _moscowLoc = func() *time.Location {
 	loc, err := time.LoadLocation("Europe/Moscow")
 	if err != nil {
-		loc = time.Local
+		slog.Error("failed to load timezone", "error", err.Error())
+		return time.Local
 	}
-	tInLocation := t.In(loc)
-	return tInLocation.Format("15:04 02.01.2006") + fmt.Sprintf(" (%s)", getTimeZone())
+	return loc
+}()
+
+// clockEmojis maps hour (0–11) → [full-hour emoji, half-hour emoji]
+var clockEmojis = [12][2]string{
+	{"🕛", "🕧"}, // 0 / 12
+	{"🕐", "🕜"}, // 1
+	{"🕑", "🕝"}, // 2
+	{"🕒", "🕞"}, // 3
+	{"🕓", "🕟"}, // 4
+	{"🕔", "🕠"}, // 5
+	{"🕕", "🕡"}, // 6
+	{"🕖", "🕢"}, // 7
+	{"🕗", "🕣"}, // 8
+	{"🕘", "🕤"}, // 9
+	{"🕙", "🕥"}, // 10
+	{"🕚", "🕦"}, // 11
 }
 
-// TimeToRuWithSeconds formats time in Moscow timezone with seconds. Falls back to local time if loading the location fails.
+// clockEmoji returns the Unicode clock-face emoji that best matches the given time.
+// Minutes < 30 → full-hour face, minutes ≥ 30 → half-hour face.
+func clockEmoji(t time.Time) string {
+	h := t.Hour() % 12
+	half := 0
+	if t.Minute() >= 30 {
+		half = 1
+	}
+	return clockEmojis[h][half]
+}
+
 func timeToRuWithSeconds(t time.Time) string {
-	loc, err := time.LoadLocation("Europe/Moscow")
-	if err != nil {
-		loc = time.Local
-	}
-	tInLocation := t.In(loc)
-	return tInLocation.Format("15:04:05 02.01.2006") + " (MSK)"
+	return t.In(_moscowLoc).Format("15:04:05 02.01.2006") + " (MSK)"
 }
 
-// GetTimeZone returns the current system timezone abbreviation.
-func getTimeZone() string {
-	zone, _ := time.Now().Zone()
-	return zone
-}
-
-// precompile regex for markdown V2 escaping
-var escapeMdV2Re = regexp.MustCompile(`([_*\[\]()~>#+=\|{}.!\\])`)
-
-// EscapeMarkdownV2 escapes characters that must be escaped for Telegram MarkdownV2.
-// We precompiled the regex above for performance.
-func escapeMarkdownV2(input string) string {
-	return escapeMdV2Re.ReplaceAllString(input, `\\$1`)
+func timeToRuWithSecondsClockEmoji(t time.Time) string {
+	return clockEmoji(t) + " " + timeToRuWithSeconds(t)
 }

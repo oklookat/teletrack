@@ -19,11 +19,10 @@ var C = &Config{
 }
 
 type Config struct {
-	Schema      string           `json:"$schema"`
-	Telegram    *telegram.Config `json:"telegram"`
-	LastFm      *lastfm.Config   `json:"lastFm"`
-	Spotify     *spotify.Config  `json:"spotify"`
-	IdleMessage string           `json:"idleMessage"`
+	Schema   string           `json:"$schema"`
+	Telegram *telegram.Config `json:"telegram"`
+	LastFm   *lastfm.Config   `json:"lastFm"`
+	Spotify  *spotify.Config  `json:"spotify"`
 	// internal
 	path string
 }

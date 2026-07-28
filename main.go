@@ -63,7 +63,7 @@ func main() {
 	}
 
 	tgTeletrack := telegram.NewTeletrackMessenger(tgBot)
-	teletrackd := core.New(spoty, lastFm, tgTeletrack, tgTeletrack, config.C.IdleMessage)
+	teletrackd := core.New(spoty, lastFm, tgTeletrack, tgTeletrack)
 
 	go func() {
 		slog.Info("Starting teletrack...")

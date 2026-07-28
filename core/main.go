@@ -13,14 +13,11 @@ import (
 const (
 	_rateLimit        = 4 * time.Second
 	_lastProgressIdle = 6 * time.Second
-
-	_watermarkLink = "https://github.com/oklookat/teletrack"
-	_watermark     = "powered by oklookat/teletrack"
 )
 
 type Messenger interface {
 	UpdatePlaying(context.Context, *PlayingMessage) error
-	UpdateIdle(context.Context, string) error
+	UpdateIdle(context.Context, *PlayingMessage) error
 }
 
 type Teletrack struct {
@@ -35,13 +32,10 @@ type Teletrack struct {
 	shutdown chan struct{}
 	done     chan struct{}
 
-	currentMessage *PlayingMessage
+	currentMessage PlayingMessage
 
 	lastTrackID      string
 	lastProgressTime time.Time
-
-	vibeEmoji   string
-	idleMessage string
 
 	pausedTicks int
 }
@@ -51,16 +45,14 @@ func New(
 	lastFm *lastfm.Client,
 	messenger Messenger,
 	reporter ErrorReporter,
-	idleMessage string,
 ) *Teletrack {
 	return &Teletrack{
 		player: player,
 		lastFm: lastFm,
 
-		messenger: messenger,
-		reporter:  reporter,
-
-		idleMessage: idleMessage,
+		messenger:      messenger,
+		reporter:       reporter,
+		currentMessage: newPlayingMessage(nil, nil),
 
 		shutdown: make(chan struct{}),
 		done:     make(chan struct{}),
@@ -172,19 +164,7 @@ func (t *Teletrack) isIdle(track *spotify.Track) bool {
 }
 
 func (t *Teletrack) onNothingPlaying(ctx context.Context) error {
-	t.mu.Lock()
-
-	t.currentMessage = nil
-	t.lastTrackID = ""
-	t.lastProgressTime = time.Time{}
-
-	if t.vibeEmoji == "" {
-		t.vibeEmoji = totalRandomEmoji()
-	}
-
-	t.mu.Unlock()
-
-	return t.messenger.UpdateIdle(ctx, t.idleMessage)
+	return t.messenger.UpdateIdle(ctx, &t.currentMessage)
 }
 
 func (t *Teletrack) onOldTrackStillPlaying(
@@ -193,39 +173,28 @@ func (t *Teletrack) onOldTrackStillPlaying(
 ) error {
 	t.mu.RLock()
 
-	current := t.currentMessage
+	if t.currentMessage.TrackInfo != nil {
 
-	if current == nil {
-		t.mu.RUnlock()
-		return nil
-	}
-
-	msg := *current
-
-	if msg.TrackInfo != nil {
-
-		trackCopy := *msg.TrackInfo
+		trackCopy := *t.currentMessage.TrackInfo
 
 		trackCopy.ProgressMs =
 			track.ProgressMs
 		trackCopy.Playing = track.Playing
 
-		msg.TrackInfo = &trackCopy
+		t.currentMessage.TrackInfo = &trackCopy
 	}
 
 	t.mu.RUnlock()
 
-	msg.Time = time.Now()
-
 	t.mu.Lock()
 
-	t.currentMessage = &msg
+	t.currentMessage.Time = time.Now()
 
 	t.mu.Unlock()
 
 	return t.messenger.UpdatePlaying(
 		ctx,
-		&msg,
+		&t.currentMessage,
 	)
 }
 
@@ -233,14 +202,12 @@ func (t *Teletrack) onNewTrackPlaying(
 	ctx context.Context,
 	track *spotify.Track,
 ) error {
-	t.mu.Lock()
-
-	t.vibeEmoji =
-		totalRandomEmoji()
-
-	emoji := t.vibeEmoji
-
-	t.mu.Unlock()
+	if track == nil || track.ID == "" {
+		return t.messenger.UpdatePlaying(
+			ctx,
+			&t.currentMessage,
+		)
+	}
 
 	bio, err := t.fetchArtistBio(
 		ctx,
@@ -251,24 +218,13 @@ func (t *Teletrack) onNewTrackPlaying(
 		return err
 	}
 
-	msg := &PlayingMessage{
-		ArtistInfo: bio,
-		TrackInfo:  track,
-
-		Time:  time.Now(),
-		Emoji: emoji,
-
-		Watermark:     _watermark,
-		WatermarkLink: _watermarkLink,
-	}
-
 	t.mu.Lock()
-	t.currentMessage = msg
+	t.currentMessage = newPlayingMessage(bio, track)
 	t.mu.Unlock()
 
 	return t.messenger.UpdatePlaying(
 		ctx,
-		msg,
+		&t.currentMessage,
 	)
 }
 

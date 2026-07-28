@@ -3,7 +3,6 @@ package lastfmclean
 
 import (
 	"regexp"
-	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -36,7 +35,9 @@ var (
 	readMoreRegex     = regexp.MustCompile(`(?i)read\s+more\s+on\s+last\.?fm`)
 	referencesRegex   = regexp.MustCompile(`\[\d+]`)
 	whitespaceRegex   = regexp.MustCompile(`\s+`)
-	abbreviationRegex = regexp.MustCompile(`\b(англ|рус|фр|нем|ит|исп|порт|кит|яп|кор|араб|греч|лат|сокр|ред|т\.е|т\.д|т\.п|н\.э|до\s*н\.э|пр|др|см|напр|и\s*т\.д|и\s*т\.п|т\.к|т\.н|стр|гл|св|сл|обл|ул|пер|бульв|просп|шосс|наб|пл|корп|лит|эт|подъезд|кв|комн|дом|д|стр|пом|оф|тел|факс|моб|email|e-mail|www|http|https|ftp|руб|USD|EUR|GBP|JPY|CAD|AUD|CHF|CNY|кг|г|мг|км|м|см|мм|л|мл|га|ac|dc|bc|ad|ce|bce|am|pm|vs|etc|eg|ie|cf|ca|approx|est|min|max|avg|std|dev|var|temp|pres|vol|no|nr|fig|p|pp|ch|sec|yr|mo|wk|day|hr|min|sec|deg|rad|mol|cd|Hz|dB|W|V|A|Ω|F|H|T|Wb|lm|lx|Bq|Gy|Sv|kat|m/s|m/s²|kg/m³|N/m²|Pa|J|N·m|W·s|C·V|V·A|W/A|A·s|V/A|Ω·m|S/m|Wb/A|H/m|J/K|J/(kg·K)|J/mol|J/mol·K|C/kg|Gy/s|W/sr)\.`)
+	// Use a unicode-aware "word boundary" because Go's \b only considers ASCII [0-9A-Za-z_].
+	// Match an optional non-letter/digit prefix so we can protect Cyrillic abbreviations like "т.е.".
+	abbreviationRegex = regexp.MustCompile(`(?:^|[^\p{L}\p{N}_])((?:англ|рус|фр|нем|ит|исп|порт|кит|яп|кор|араб|греч|лат|сокр|ред|т\.е|т\.д|т\.п|н\.э|до\s*н\.э|пр|др|см|напр|и\s*т\.д|и\s*т\.п|т\.к|т\.н|стр|гл|св|сл|обл|ул|пер|бульв|просп|шосс|наб|пл|корп|лит|эт|подъезд|кв|комн|дом|д|стр|пом|оф|тел|факс|моб|email|e-mail|www|http|https|ftp|руб|USD|EUR|GBP|JPY|CAD|AUD|CHF|CNY|кг|г|мг|км|м|см|мм|л|мл|га|ac|dc|bc|ad|ce|bce|am|pm|vs|etc|eg|ie|cf|ca|approx|est|min|max|avg|std|dev|var|temp|pres|vol|no|nr|fig|p|pp|ch|sec|yr|mo|wk|day|hr|min|sec|deg|rad|mol|cd|Hz|dB|W|V|A|Ω|F|H|T|Wb|lm|lx|Bq|Gy|Sv|kat|m/s|m/s²|kg/m³|N/m²|Pa|J|N·m|W·s|C·V|V·A|W/A|A·s|V/A|Ω·m|S/m|Wb/A|H/m|J/K|J/(kg·K)|J/mol|J/mol·K|C/kg|Gy/s|W/sr)\.)`)
 )
 
 var (
@@ -62,14 +63,20 @@ var (
 	)
 	// Phrases that explicitly say the bio covers multiple artists.
 	multipleArtistPhrasePatterns = []*regexp.Regexp{
-		regexp.MustCompile(`There are \d+ artists with this name`),
-		regexp.MustCompile(`There are multiple artists under the name of`),
-		regexp.MustCompile(`Multiple artists share this name`),
-		regexp.MustCompile(`Artists sharing this name`),
+		regexp.MustCompile(`(?i)There are \d+ artists with this name`),
+		regexp.MustCompile(`(?i)There are multiple artists under the name of`),
+		regexp.MustCompile(`(?i)Multiple artists share this name`),
+		regexp.MustCompile(`(?i)Artists sharing this name`),
+		// Common Last.fm variant: "There are at least N other known artists called X"
+		regexp.MustCompile(`(?i)There are at least \d+ other known artists? called`),
+		regexp.MustCompile(`(?i)There are at least \d+ other artists? (?:with this name|called)`),
+		regexp.MustCompile(`(?i)There (?:are|is) (?:at least )?\d+ (?:other )?(?:known )?artists? (?:with this name|called|named)`),
+		regexp.MustCompile(`(?i)There is more than one artist that goes by the name`),
+		regexp.MustCompile(`(?i)There (?:is|are) more than one artist`),
 	}
 	// listItemRegex matches enumeration markers like "1) " or "2. ",
 	// whether separated by newlines or just spaces.
-	listItemRegex = regexp.MustCompile(`(?:^|\s)([1-9]|[1-9][0-9])[\)\.]\s+`)
+	listItemRegex = regexp.MustCompile(`(?:^|\s)(?:[1-9]|[1-9][0-9])[\)\.]\s+`)
 	// Header text to strip once we know we're dealing with the first
 	// section of a multi-artist bio.
 	headerPatterns = []*regexp.Regexp{
@@ -77,13 +84,24 @@ var (
 		regexp.MustCompile(`(?i)^There are multiple artists under the name of [^:\n]+[:\s]*`),
 		regexp.MustCompile(`(?i)^Multiple artists share this name[:\s]*`),
 		regexp.MustCompile(`(?i)^Artists sharing this name[:\s]*`),
+		regexp.MustCompile(`(?i)^There are at least \d+ other known artists? called [^:\n]*[:\s\-]*`),
+		regexp.MustCompile(`(?i)^There (?:are|is) (?:at least )?\d+ (?:other )?(?:known )?artists? (?:with this name|called|named)[^:\n]*[:\s\-]*`),
+		regexp.MustCompile(`(?i)^There is more than one artist that goes by the name [^:\n]*[:\s]*`),
+		regexp.MustCompile(`(?i)^There (?:is|are) more than one artist[^:\n]*[:\s]*`),
 		regexp.MustCompile(`^\s*\d+[\)\.]\s*`),
 	}
 	// Where the first artist's section ends and the next one begins.
+	// Matches both newline-separated and inline "2. " / "2) " markers,
+	// and also the common "------ 2." separator style.
 	sectionEndPatterns = []*regexp.Regexp{
 		regexp.MustCompile(`\n\s*\d+[\)\.]\s`),
 		regexp.MustCompile(`\n\n\s*\d+[\)\.]\s`),
-		regexp.MustCompile(`\n\n[A-Z][^\n]{0,50}\n`),
+		// Inline / same-line numbered section (no leading newline required)
+		regexp.MustCompile(`(?:^|[^\d])\s*\d+[\)\.]\s+[A-Z]`),
+		// Dashed separator followed by a numbered entry
+		regexp.MustCompile(`-{2,}\s*\d+[\)\.]\s`),
+		// Trailing newline is optional because TrimSpace may have removed it.
+		regexp.MustCompile(`\n\n[A-Z][^\n]{0,50}(?:\n|$)`),
 	}
 	// Paired characters that must stay balanced after truncation.
 	pairedChars = map[rune]rune{
@@ -123,19 +141,35 @@ func (c *Cleaner) Clean(raw string) string {
 
 func extractFirstArtistSection(s string) string {
 	s = strings.TrimSpace(s)
-	switch matches := listItemRegex.FindAllStringIndex(s, -1); {
-	case len(matches) >= 2:
-		// Keep only up to the second marker and strip intro text before first
-		if len(matches) > 0 {
-			firstStart := matches[0][0]
-			secondStart := matches[1][0]
-			s = strings.TrimSpace(s[firstStart:secondStart])
+	matches := listItemRegex.FindAllStringIndex(s, -1)
+
+	// 1. Two or more numbered entries → keep only the first section.
+	if len(matches) >= 2 {
+		firstStart := matches[0][0]
+		secondStart := matches[1][0]
+		s = strings.TrimSpace(s[firstStart:secondStart])
+	} else if hasExplicitMultipleArtists(s) {
+		// 2. Multi-artist phrase appears mid-bio → cut before it (primary bio first).
+		cutAt := -1
+		for _, p := range multipleArtistPhrasePatterns {
+			if loc := p.FindStringIndex(s); loc != nil && loc[0] > 0 {
+				if cutAt < 0 || loc[0] < cutAt {
+					cutAt = loc[0]
+				}
+			}
 		}
-	case hasExplicitMultipleArtists(s):
-		for _, p := range sectionEndPatterns {
-			if loc := p.FindStringIndex(s); loc != nil {
-				s = strings.TrimSpace(s[:loc[0]])
-				break
+		if cutAt > 0 {
+			s = strings.TrimSpace(s[:cutAt])
+		} else if len(matches) >= 1 {
+			// 3. Phrase is at the start and a numbered entry follows → start there.
+			s = strings.TrimSpace(s[matches[0][0]:])
+		} else {
+			// 4. Fall back to section-end markers.
+			for _, p := range sectionEndPatterns {
+				if loc := p.FindStringIndex(s); loc != nil {
+					s = strings.TrimSpace(s[:loc[0]])
+					break
+				}
 			}
 		}
 	}
@@ -155,41 +189,60 @@ func hasExplicitMultipleArtists(s string) bool {
 	return false
 }
 
-// smartTruncate, splitSentences, balancePairedCharacters и hardTruncate остались почти без изменений (кроме улучшения в hardTruncate)
-
 func smartTruncate(s string, limit int) string {
-	if limit <= 0 || utf8.RuneCountInString(s) <= limit {
+	// Always prefer complete sentences. Drop a trailing fragment that
+	// does not end with terminal punctuation (typical of cut-off source
+	// text). Only fall back to hard truncation when the length budget
+	// forces us to. Artist names may start with a lowercase letter, so
+	// we do NOT require an uppercase start.
+	sentences := splitSentences(s)
+	if len(sentences) == 0 {
+		if limit > 0 && utf8.RuneCountInString(s) > limit {
+			return hardTruncate(s, limit)
+		}
 		return s
 	}
-	sentences := splitSentences(s)
+
+	// Drop a final incomplete fragment when earlier complete sentences exist.
+	lastIdx := len(sentences) - 1
+	if lastIdx > 0 {
+		lastSent := strings.TrimSpace(sentences[lastIdx])
+		if lastSent != "" {
+			lastRune, _ := utf8.DecodeLastRuneInString(lastSent)
+			if !isSentenceEnd(lastRune) {
+				sentences = sentences[:lastIdx]
+			}
+		}
+	}
+
+	underLimit := limit <= 0 || utf8.RuneCountInString(s) <= limit
 	var b strings.Builder
 	length := 0
+
 	for _, sent := range sentences {
 		sent = strings.TrimSpace(sent)
 		if sent == "" {
 			continue
 		}
-		first, _ := utf8.DecodeRuneInString(sent)
-		if !unicode.IsUpper(first) && !unicode.IsDigit(first) {
-			continue
-		}
 		sentLen := utf8.RuneCountInString(sent)
-		if length+sentLen+1 > limit {
-			truncated := balancePairedCharacters(b.String() + " " + sent)
-			if utf8.RuneCountInString(truncated) <= limit {
-				return truncated
-			}
+		sep := 0
+		if b.Len() > 0 {
+			sep = 1
+		}
+		if !underLimit && length+sep+sentLen > limit {
 			break
 		}
-		if b.Len() > 0 {
+		if sep == 1 {
 			b.WriteString(" ")
-			length++
 		}
 		b.WriteString(sent)
-		length += sentLen
+		length += sep + sentLen
 	}
 	if out := strings.TrimSpace(b.String()); out != "" {
 		return balancePairedCharacters(out)
+	}
+	if underLimit {
+		return s
 	}
 	return hardTruncate(s, limit)
 }
@@ -198,20 +251,30 @@ func splitSentences(s string) []string {
 	protected := abbreviationRegex.ReplaceAllStringFunc(s, func(m string) string {
 		return strings.ReplaceAll(m, ".", "§ABBR§")
 	})
+	runes := []rune(protected)
 	var sentences []string
 	var current strings.Builder
 	var stack []rune
-	for _, r := range protected {
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
 		current.WriteRune(r)
 		if _, ok := pairedChars[r]; ok {
 			stack = append(stack, r)
 			continue
-		} else if _, ok := closingChars[r]; ok && len(stack) > 0 {
+		}
+		if _, ok := closingChars[r]; ok && len(stack) > 0 {
 			if pairedChars[stack[len(stack)-1]] == r {
 				stack = stack[:len(stack)-1]
 			}
+			continue
 		}
 		if isSentenceEnd(r) && len(stack) == 0 {
+			// Collapse consecutive sentence terminators:
+			// "..." / "?!" / "?.." — one boundary, not several.
+			for i+1 < len(runes) && isSentenceEnd(runes[i+1]) {
+				i++
+				current.WriteRune(runes[i])
+			}
 			sentence := strings.ReplaceAll(current.String(), "§ABBR§", ".")
 			sentences = append(sentences, strings.TrimSpace(sentence))
 			current.Reset()
@@ -239,8 +302,8 @@ func balancePairedCharacters(s string) string {
 			b.WriteRune(r)
 		}
 	}
-	for _, s := range slices.Backward(stack) {
-		b.WriteRune(pairedChars[s])
+	for i := len(stack) - 1; i >= 0; i-- {
+		b.WriteRune(pairedChars[stack[i]])
 	}
 	return b.String()
 }
@@ -250,17 +313,38 @@ func hardTruncate(s string, limit int) string {
 	if len(runes) <= limit {
 		return s
 	}
-	for i := limit - 1; i > limit/2; i-- {
-		if unicode.IsSpace(runes[i]) || unicode.IsPunct(runes[i]) {
-			cutStr := string(runes[:i])
-			// Trim trailing punctuation and spaces to avoid dangling commas etc.
-			cut := strings.TrimRightFunc(cutStr, func(r rune) bool {
-				return unicode.IsPunct(r) || unicode.IsSpace(r)
-			})
-			return balancePairedCharacters(cut + "...")
+	const ellipsis = "..."
+	ellLen := utf8.RuneCountInString(ellipsis)
+	if limit <= ellLen {
+		return string(runes[:limit])
+	}
+	// Leave room for the ellipsis; balancePairedCharacters may add a few closers,
+	// so we try progressively shorter cuts until the final result fits.
+	maxContent := limit - ellLen
+	for contentLimit := maxContent; contentLimit > maxContent/2; contentLimit-- {
+		for i := contentLimit; i > contentLimit/2; i-- {
+			if i >= len(runes) {
+				continue
+			}
+			if unicode.IsSpace(runes[i]) || unicode.IsPunct(runes[i]) {
+				cutStr := string(runes[:i])
+				cut := strings.TrimRightFunc(cutStr, func(r rune) bool {
+					return unicode.IsPunct(r) || unicode.IsSpace(r)
+				})
+				result := balancePairedCharacters(cut + ellipsis)
+				if utf8.RuneCountInString(result) <= limit {
+					return result
+				}
+			}
 		}
 	}
-	return balancePairedCharacters(string(runes[:limit]) + "...")
+	// Fallback: hard cut content and append ellipsis, then force length.
+	result := balancePairedCharacters(string(runes[:maxContent]) + ellipsis)
+	r := []rune(result)
+	if len(r) > limit {
+		return string(r[:limit])
+	}
+	return result
 }
 
 func isSentenceEnd(r rune) bool {

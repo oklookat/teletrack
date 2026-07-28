@@ -5,8 +5,7 @@
     "required": [
         "telegram",
         "lastFm",
-        "spotify",
-        "idleMessage"
+        "spotify"
     ],
     "properties": {
         "telegram": {
@@ -119,9 +118,6 @@
                     }
                 }
             ]
-        },
-        "idleMessage": {
-            "type": "string"
         }
     }
 }

@@ -7,6 +7,22 @@ import (
 	"github.com/oklookat/teletrack/core/spotify"
 )
 
+const (
+	_watermarkLink = "https://github.com/oklookat/teletrack"
+	_watermark     = "powered by oklookat/teletrack"
+)
+
+func newPlayingMessage(artistInfo *lastfm.ArtistBio, trackInfo *spotify.Track) PlayingMessage {
+	return PlayingMessage{
+		ArtistInfo:    artistInfo,
+		TrackInfo:     trackInfo,
+		Time:          time.Now(),
+		Emoji:         totalRandomEmoji(),
+		Watermark:     _watermark,
+		WatermarkLink: _watermarkLink,
+	}
+}
+
 type PlayingMessage struct {
 	ArtistInfo *lastfm.ArtistBio
 	TrackInfo  *spotify.Track
