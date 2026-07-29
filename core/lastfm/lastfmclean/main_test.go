@@ -68,6 +68,11 @@ func TestCleaner_Clean(t *testing.T) {
 			Expected: "Christian Shaw (born January 31, 1997), better known as Hi-C (aka yung hi c ^_^), is a rapper and producer from Nashville, Tennessee. He is also known as a former member of Diamondsonmydick's infamous rap collective Reptilian Club Boyz.",
 			Length:   240,
 		},
+		{
+			Input:    "There are multiple artists that have performed under the name Sophie: 1 Sophie Xeon (September 17, 1986 – January 30, 2021), mononymously known by her stage name Sophie (stylized in all caps), was a Scottish producer and singer-songwriter who worked in Los Angeles and lived in Greece. She came to prominence in 2013 with her single `Bipp``Elle` and released `Lemonade`/`Hard` the following year.",
+			Expected: "Sophie Xeon (September 17, 1986 – January 30, 2021), mononymously known by her stage name Sophie (stylized in all caps), was a Scottish producer and singer-songwriter who worked in Los Angeles and lived in Greece. She came to prominence in 2013 with her single `Bipp``Elle` and released `Lemonade`/`Hard` the following year.",
+			Length:   1000,
+		},
 	}
 
 	cleaner := NewCleaner(500)

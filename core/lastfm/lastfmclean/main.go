@@ -73,6 +73,7 @@ var (
 		regexp.MustCompile(`(?i)There (?:are|is) (?:at least )?\d+ (?:other )?(?:known )?artists? (?:with this name|called|named)`),
 		regexp.MustCompile(`(?i)There is more than one artist that goes by the name`),
 		regexp.MustCompile(`(?i)There (?:is|are) more than one artist`),
+		regexp.MustCompile(`(?i)There are multiple artists that have performed under the name`),
 	}
 	// listItemRegex matches enumeration markers like "1) " or "2. ",
 	// whether separated by newlines or just spaces.
@@ -88,8 +89,16 @@ var (
 		regexp.MustCompile(`(?i)^There (?:are|is) (?:at least )?\d+ (?:other )?(?:known )?artists? (?:with this name|called|named)[^:\n]*[:\s\-]*`),
 		regexp.MustCompile(`(?i)^There is more than one artist that goes by the name [^:\n]*[:\s]*`),
 		regexp.MustCompile(`(?i)^There (?:is|are) more than one artist[^:\n]*[:\s]*`),
+		regexp.MustCompile(`(?i)^There are multiple artists that have performed under the name [^:\n]+[:\s]*`),
 		regexp.MustCompile(`^\s*\d+[\)\.]\s*`),
 	}
+	// bareNumberMarkerRegex strips a bare numbered marker with no punctuation
+	// (e.g. "1 Artist Name ...") that can remain after a header phrase has
+	// been stripped above. Restricted to a single digit immediately followed
+	// by whitespace and then a capital letter, to avoid eating years/dates
+	// like "1975 ...". Uses a capture group (instead of a lookahead, which
+	// Go's RE2 engine doesn't support) so the following letter is preserved.
+	bareNumberMarkerRegex = regexp.MustCompile(`^[1-9]\s+([A-Z])`)
 	// Where the first artist's section ends and the next one begins.
 	// Matches both newline-separated and inline "2. " / "2) " markers,
 	// and also the common "------ 2." separator style.
@@ -177,6 +186,7 @@ func extractFirstArtistSection(s string) string {
 	for _, p := range headerPatterns {
 		s = p.ReplaceAllString(s, "")
 	}
+	s = bareNumberMarkerRegex.ReplaceAllString(s, "$1")
 	return strings.TrimSpace(s)
 }
 
