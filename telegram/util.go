@@ -55,15 +55,20 @@ var clockEmojis = [12][2]string{
 	{"🕚", "🕦"}, // 11
 }
 
-// clockEmoji returns the Unicode clock-face emoji that best matches the given time.
-// Minutes < 30 → full-hour face, minutes ≥ 30 → half-hour face.
+// clockEmoji returns the Unicode clock-face emoji closest to the given time,
+// rounding to the nearest 30-minute slot (with wraparound across hours/day).
 func clockEmoji(t time.Time) string {
 	h := t.Hour() % 12
-	half := 0
-	if t.Minute() >= 30 {
-		half = 1
-	}
-	return clockEmojis[h][half]
+	m := t.Minute()
+
+	// Total 30-minute slots since 12:00, rounded to nearest (ties round up).
+	slot := (h*60 + m + 15) / 30
+	slot %= 24
+
+	hourIdx := (slot / 2) % 12
+	half := slot % 2
+
+	return clockEmojis[hourIdx][half]
 }
 
 func timeToRuWithSeconds(t time.Time) string {
