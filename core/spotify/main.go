@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/oklookat/teletrack/core"
 	spotifyapi "github.com/zmb3/spotify/v2"
 	"golang.org/x/oauth2"
 )
@@ -65,7 +66,7 @@ type Player struct {
 	client *spotifyapi.Client
 }
 
-func (p *Player) GetPlaying(ctx context.Context) (*Track, error) {
+func (p *Player) GetPlaying(ctx context.Context) (*core.TrackInfo, error) {
 	curPlay, err := getCurrentPlaying(ctx, p.client)
 	if err != nil {
 		return nil, fmt.Errorf("getCurrentPlaying: %w", err)
@@ -74,15 +75,16 @@ func (p *Player) GetPlaying(ctx context.Context) (*Track, error) {
 		return nil, nil
 	}
 
-	track := &Track{
-		ID:         curPlay.ID,
-		Track:      curPlay.Name,
-		Artist:     curPlay.Artist,
-		TrackLink:  "https://open.spotify.com/track/" + curPlay.ID,
-		ProgressMs: curPlay.ProgressMs,
-		DurationMs: curPlay.DurationMs,
-		Playing:    curPlay.Playing,
+	track := &core.TrackInfo{
+		Track:            curPlay.Name,
+		Artist:           curPlay.Artist,
+		TrackLink:        "https://open.spotify.com/track/" + curPlay.ID,
+		TrackLinkService: "Spotify",
+		ProgressMs:       new(curPlay.ProgressMs),
+		DurationMs:       new(curPlay.DurationMs),
+		Playing:          curPlay.Playing,
 	}
+	track.GenerateID()
 	if curPlay.CoverURL != nil && len(*curPlay.CoverURL) > 0 {
 		track.CoverURL = *curPlay.CoverURL
 	}

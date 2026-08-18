@@ -47,7 +47,7 @@ func main() {
 	}
 
 	// Spotify
-	spoty, err := spotify.New(ctx, config.C.Spotify, func(t *oauth2.Token) error {
+	spotifyPlayer, err := spotify.New(ctx, config.C.Spotify, func(t *oauth2.Token) error {
 		config.C.Spotify.Authorize = false
 		config.C.Spotify.Token = t
 		return config.C.Save()
@@ -62,8 +62,10 @@ func main() {
 		chk("lastfm.NewClient", err)
 	}
 
+	//
+	players := []core.Player{spotifyPlayer, lastFm}
 	tgTeletrack := telegram.NewTeletrackMessenger(tgBot)
-	teletrackd := core.New(spoty, lastFm, tgTeletrack, tgTeletrack)
+	teletrackd := core.New(players, lastFm, tgTeletrack, tgTeletrack)
 
 	go func() {
 		slog.Info("Starting teletrack...")

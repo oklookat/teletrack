@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -30,6 +31,10 @@ type TeletrackMessenger struct {
 }
 
 func (t *TeletrackMessenger) UpdatePlaying(ctx context.Context, msg *core.PlayingMessage) error {
+	if msg == nil {
+		return errors.New("nil PlayingMessage")
+	}
+
 	params := &bot.EditMessageTextParams{
 		ChatID:    t.tg.cfg.ChatID,
 		MessageID: t.tg.cfg.MessageID,
@@ -42,7 +47,7 @@ func (t *TeletrackMessenger) UpdatePlaying(ctx context.Context, msg *core.Playin
 
 	// Link preview.
 	var opts models.LinkPreviewOptions
-	if msg.TrackInfo.CoverURL != "" {
+	if msg.TrackInfo != nil && msg.TrackInfo.CoverURL != "" {
 		opts = models.LinkPreviewOptions{
 			IsDisabled:       bot.False(),
 			PreferLargeMedia: bot.True(),

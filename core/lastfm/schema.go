@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // Image represents an image with a size and URL/text.
@@ -30,6 +32,26 @@ type AlbumShort struct {
 type DateInfo struct {
 	Uts  string `json:"uts"`
 	Text string `json:"#text"`
+}
+
+func (d DateInfo) ToTime() *time.Time {
+	// 1. Try to parse Text first.
+	if strings.TrimSpace(d.Text) != "" {
+		if t, err := time.Parse("02 Jan 2006, 15:04", strings.TrimSpace(d.Text)); err == nil {
+			return &t
+		}
+	}
+
+	// 2. Fall back to Unix timestamp.
+	if strings.TrimSpace(d.Uts) != "" {
+		if timestamp, err := strconv.ParseInt(strings.TrimSpace(d.Uts), 10, 64); err == nil {
+			t := time.Unix(timestamp, 0)
+			return &t
+		}
+	}
+
+	// 3. Nothing worked.
+	return nil
 }
 
 // RankAttr represents a rank attribute.
@@ -222,6 +244,8 @@ func (a *Artist) Validate() error {
 }
 
 // Validate checks if the Track struct has required fields.
+//
+// Checks Name, Artist, Artist.Name
 func (t *Track) Validate() error {
 	if t.Name == "" {
 		return errors.New("track name is required")

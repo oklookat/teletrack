@@ -45,21 +45,23 @@ func newTeletrackPlayingMessage(msg *core.PlayingMessage) teletrackPlayingMessag
 		result.ArtistTrack = "`" + sanitizeCodeSpan(artistTrack) + "`"
 
 		// Progress.
-		result.Progress = fmt.Sprintf("%s %s %s",
-			result.formatTime(msg.TrackInfo.ProgressMs),
-			result.formatProgressBar(msg.TrackInfo.ProgressMs, msg.TrackInfo.DurationMs),
-			result.formatTime(msg.TrackInfo.DurationMs))
+		if msg.TrackInfo.ProgressSupported() {
+			result.Progress = new(fmt.Sprintf("%s %s %s",
+				result.formatTime(*msg.TrackInfo.ProgressMs),
+				result.formatProgressBar(*msg.TrackInfo.ProgressMs, *msg.TrackInfo.DurationMs),
+				result.formatTime(*msg.TrackInfo.DurationMs)))
+		}
 
 		// Track link.
 		if msg.TrackInfo.TrackLink != "" {
-			result.Links = append(result.Links, tgLink("🔗 Spotify", msg.TrackInfo.TrackLink))
+			result.Links = append(result.Links, tgLink("🎹 "+msg.TrackInfo.TrackLinkService, msg.TrackInfo.TrackLink))
 		}
 	}
 
 	if msg.ArtistInfo != nil && msg.ArtistInfo.Bio != "" {
 		// Artist link.
 		if msg.ArtistInfo.Link != "" {
-			result.Links = append(result.Links, tgLink("🔗 Last.fm", msg.ArtistInfo.Link))
+			result.Links = append(result.Links, tgLink("👨‍🎨 "+msg.ArtistInfo.BioService, msg.ArtistInfo.Link))
 		}
 
 		// Bio.
@@ -86,7 +88,7 @@ type teletrackPlayingMessage struct {
 	Time        string
 	Status      string
 	ArtistTrack string
-	Progress    string
+	Progress    *string
 	Bio         string
 	Links       []string
 	Emoji       string
@@ -159,8 +161,10 @@ func (t teletrackPlayingMessage) BuildPlayingMessage() string {
 	b.WriteString("\n\n")
 
 	// Progress.
-	b.WriteString(t.Progress)
-	b.WriteString("\n\n")
+	if t.Progress != nil {
+		b.WriteString(*t.Progress)
+		b.WriteString("\n\n")
+	}
 
 	// Bio.
 	if t.Bio != "" {

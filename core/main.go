@@ -5,9 +5,6 @@ import (
 	"fmt"
 	"sync"
 	"time"
-
-	"github.com/oklookat/teletrack/core/lastfm"
-	"github.com/oklookat/teletrack/core/spotify"
 )
 
 const (
@@ -21,14 +18,19 @@ const (
 	_lastProgressIdle = 6 * time.Second
 )
 
+type Player interface {
+	// Get current playing track.
+	GetPlaying(ctx context.Context) (*TrackInfo, error)
+}
+
 type Messenger interface {
 	UpdatePlaying(context.Context, *PlayingMessage) error
 	UpdateIdle(context.Context, *PlayingMessage) error
 }
 
 type Teletrack struct {
-	player *spotify.Player
-	lastFm *lastfm.Client
+	players      []Player
+	artistGetter ArtistGetter
 
 	messenger Messenger
 	reporter  ErrorReporter
@@ -53,14 +55,14 @@ type Teletrack struct {
 }
 
 func New(
-	player *spotify.Player,
-	lastFm *lastfm.Client,
+	players []Player,
+	artistGetter ArtistGetter,
 	messenger Messenger,
 	reporter ErrorReporter,
 ) *Teletrack {
 	return &Teletrack{
-		player: player,
-		lastFm: lastFm,
+		players:      players,
+		artistGetter: artistGetter,
 
 		messenger:      messenger,
 		reporter:       reporter,
@@ -108,9 +110,25 @@ func (t *Teletrack) Stop() {
 }
 
 func (t *Teletrack) handleTick(ctx context.Context) error {
-	playing, err := t.player.GetPlaying(ctx)
-	if err != nil {
-		return fmt.Errorf("spotify GetPlaying: %w", err)
+	var playing *TrackInfo
+
+	for i, player := range t.players {
+		tInfo, err := player.GetPlaying(ctx)
+		if err != nil {
+			if i == len(t.players)-1 {
+				return err
+			}
+			t.reporter.ReportError(ctx, fmt.Errorf("handleTick.GetPlaying: %w", err))
+			continue
+		}
+		playing = tInfo
+		break
+	}
+
+	if playing != nil {
+		if ok := playing.GenerateID(); !ok {
+			return nil
+		}
 	}
 
 	idle := t.isIdle(playing)
@@ -124,15 +142,21 @@ func (t *Teletrack) handleTick(ctx context.Context) error {
 		return t.onNothingPlaying(ctx)
 	}
 
-	now := time.Now()
+	if t.currentMessage.TrackInfo == nil {
+		return t.onNewTrackPlaying(ctx, playing)
+	}
 
-	// We just came out of idle (unpaused, or player just became active
-	// again). Any timing/progress state we were holding onto predates
-	// the idle period and must not be used to judge staleness now.
+	now := time.Now()
+	supportsProgress := playing.ProgressSupported()
+
 	if wasIdle {
 		t.mu.Lock()
 		t.lastProgressTime = now
-		t.lastProgressMs = playing.ProgressMs
+		if supportsProgress {
+			t.lastProgressMs = *playing.ProgressMs
+		} else {
+			t.lastProgressMs = 0
+		}
 		t.mu.Unlock()
 
 		if playing.ID != t.getLastTrackID() {
@@ -152,16 +176,23 @@ func (t *Teletrack) handleTick(ctx context.Context) error {
 	t.mu.RUnlock()
 
 	if playing.ID == lastID {
-		progressMoved := playing.ProgressMs != lastProgressMs
+		// Если поставщик не отдаёт прогресс, у нас нет данных, чтобы
+		// судить о "залипании" — доверяем playing=true как есть.
+		if !supportsProgress {
+			return t.onOldTrackStillPlaying(ctx, playing)
+		}
+
+		currentProgress := *playing.ProgressMs
+		progressMoved := currentProgress != lastProgressMs
 
 		if progressMoved {
 			t.mu.Lock()
-			t.lastProgressMs = playing.ProgressMs
+			t.lastProgressMs = currentProgress
 			t.lastProgressTime = now
 			t.mu.Unlock()
 		} else if !lastProgressTime.IsZero() &&
 			now.Sub(lastProgressTime) > _lastProgressIdle {
-			// Playing=true but progress hasn't moved for too long: treat as idle.
+			// Playing=true, но прогресс не двигается слишком долго: считаем idle.
 			return t.onNothingPlaying(ctx)
 		}
 
@@ -170,7 +201,11 @@ func (t *Teletrack) handleTick(ctx context.Context) error {
 
 	t.mu.Lock()
 	t.lastTrackID = playing.ID
-	t.lastProgressMs = playing.ProgressMs
+	if supportsProgress {
+		t.lastProgressMs = *playing.ProgressMs
+	} else {
+		t.lastProgressMs = 0
+	}
 	t.lastProgressTime = now
 	t.mu.Unlock()
 
@@ -186,7 +221,7 @@ func (t *Teletrack) getLastTrackID() string {
 // isIdle reports whether the player should currently be treated as idle.
 // It debounces short pauses: playback must be reported as paused for
 // _pausedTicksThreshold consecutive ticks before we call it idle.
-func (t *Teletrack) isIdle(track *spotify.Track) bool {
+func (t *Teletrack) isIdle(track *TrackInfo) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -200,8 +235,12 @@ func (t *Teletrack) isIdle(track *spotify.Track) bool {
 		return false
 	}
 
-	t.pausedTicks++
-	return t.pausedTicks >= _pausedTicksThreshold
+	if t.pausedTicks >= _pausedTicksThreshold {
+		return true
+	} else {
+		t.pausedTicks++
+		return false
+	}
 }
 
 func (t *Teletrack) onNothingPlaying(ctx context.Context) error {
@@ -210,7 +249,7 @@ func (t *Teletrack) onNothingPlaying(ctx context.Context) error {
 
 func (t *Teletrack) onOldTrackStillPlaying(
 	ctx context.Context,
-	track *spotify.Track,
+	track *TrackInfo,
 ) error {
 	t.mu.Lock()
 
@@ -223,7 +262,11 @@ func (t *Teletrack) onOldTrackStillPlaying(
 		t.currentMessage.TrackInfo = &trackCopy
 	}
 
-	t.currentMessage.Time = time.Now()
+	if track != nil && track.Time == nil {
+		t.currentMessage.Time = time.Now()
+	} else {
+		t.currentMessage.Time = *track.Time
+	}
 
 	t.mu.Unlock()
 
@@ -232,13 +275,13 @@ func (t *Teletrack) onOldTrackStillPlaying(
 
 func (t *Teletrack) onNewTrackPlaying(
 	ctx context.Context,
-	track *spotify.Track,
+	track *TrackInfo,
 ) error {
-	if track == nil || track.ID == "" {
-		return t.messenger.UpdatePlaying(ctx, &t.currentMessage)
-	}
+	// if track == nil || track.ID == "" {
+	// 	return t.messenger.UpdatePlaying(ctx, &t.currentMessage)
+	// }
 
-	bio, err := t.fetchArtistBio(ctx, track.Artist)
+	bio, err := t.fetchArtistInfo(ctx, track.Artist)
 	if err != nil {
 		return err
 	}
@@ -250,9 +293,24 @@ func (t *Teletrack) onNewTrackPlaying(
 	return t.messenger.UpdatePlaying(ctx, &t.currentMessage)
 }
 
-func (t *Teletrack) fetchArtistBio(
+type ArtistGetter interface {
+	// First lang is preferred. Other langs for fallback if first lang doesnt have bio.
+
+	// Langs format:
+
+	// ISO639-2 code (see https://www.loc.gov/standards/iso639-2/php/code_list.php
+	GetArtistInfo(ctx context.Context, artist string, langs []string) (*ArtistInfo, error)
+}
+
+type ArtistInfo struct {
+	Link       string
+	Bio        string
+	BioService string
+}
+
+func (t *Teletrack) fetchArtistInfo(
 	ctx context.Context,
 	artist string,
-) (*lastfm.ArtistBio, error) {
-	return t.lastFm.GetArtistBio(ctx, artist, []string{"en", "ru"})
+) (*ArtistInfo, error) {
+	return t.artistGetter.GetArtistInfo(ctx, artist, []string{"en", "ru"})
 }

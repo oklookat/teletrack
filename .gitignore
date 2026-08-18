@@ -30,3 +30,5 @@ go.work
 teletrack-prod/
 
 teletrack
+
+__debug*

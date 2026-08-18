@@ -38,3 +38,5 @@
 -d:teletrack-prod
 
 -a:teletrack
+
+-f:__debug*
