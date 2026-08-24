@@ -50,14 +50,21 @@ func main() {
 		chk("failed to start telegram bot", err)
 	}
 
+	// Players
+	var players []core.Player
+
 	// Spotify
-	spotifyPlayer, err := spotify.New(ctx, config.C.Spotify, func(t *oauth2.Token) error {
-		config.C.Spotify.Authorize = false
-		config.C.Spotify.Token = t
-		return config.C.Save()
-	})
-	if err != nil {
-		chk("spotify.New", err)
+	enableSpotify := config.C.Spotify.ClientID != ""
+	if enableSpotify {
+		spotifyPlayer, err := spotify.New(ctx, config.C.Spotify, func(t *oauth2.Token) error {
+			config.C.Spotify.Authorize = false
+			config.C.Spotify.Token = t
+			return config.C.Save()
+		})
+		if err != nil {
+			chk("spotify.New", err)
+		}
+		players = append(players, spotifyPlayer)
 	}
 
 	// last.fm
@@ -65,9 +72,9 @@ func main() {
 	if err != nil {
 		chk("lastfm.NewClient", err)
 	}
+	players = append(players, lastFm)
 
 	//
-	players := []core.Player{spotifyPlayer, lastFm}
 	tgTeletrack := telegram.NewTeletrackMessenger(tgBot)
 	teletrackd := core.New(players, lastFm, tgTeletrack, tgTeletrack)
 
