@@ -19,10 +19,14 @@ import (
 	"github.com/oklookat/teletrack/core/spotify"
 )
 
+var version = "unknown"
+
 func main() {
 	// Flags
 	configPath := flag.String("c", "config.json", "config path")
 	flag.Parse()
+
+	slog.Info("teletrack " + version)
 
 	// Boot configuration
 	if err := config.Boot(*configPath); err != nil {

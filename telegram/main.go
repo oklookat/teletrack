@@ -37,7 +37,7 @@ func NewTelegramBot(ctx context.Context, cancel context.CancelFunc, cfg *Config)
 	}
 
 	b, err := bot.New(cfg.Token, bot.WithDefaultHandler(tg.defaultHandler),
-		bot.WithHTTPClient(30*time.Second, newTelegramHTTPClient()))
+		bot.WithHTTPClient(60*time.Second, newTelegramHTTPClient()))
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +163,6 @@ func getUserIDByUpdate(update *models.Update) *int64 {
 func newTelegramHTTPClient() *http.Client {
 	return &http.Client{
 		Transport: telegramTransport(),
-		Timeout:   15 * time.Second,
 	}
 }
 
