@@ -1,6 +1,6 @@
 # teletrack
 
-Displays current playing Spotify track in Telegram channel post.
+Displays current playing Spotify or Last.fm track in Telegram channel.
 
 ![screenshot of teletrack](./screenshot.png)
 
@@ -13,7 +13,7 @@ Displays current playing Spotify track in Telegram channel post.
 5. Fill `config.json`. `telegram`, `lastFm` fields, `spotify` (except `token` field).
 6. Run `teletrack`, and authorize `Spotify` (see messages in console).
 
-Automized deployment (to VPS, for example) can be achivied via [ansiblecfgs](https://github.com/oklookat/ansiblecfgs/tree/v2/playbooks/teletrack).
+Automized deployment (to VPS, for example) can be achivied via [ansiblecfgs](https://github.com/oklookat/ansiblecfgs/tree/v3/playbooks/teletrack).
 
 ## Flags
 

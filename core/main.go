@@ -110,6 +110,9 @@ func (t *Teletrack) Stop() {
 }
 
 func (t *Teletrack) handleTick(ctx context.Context) error {
+	// TODO:
+	// добавить логику: если в одном плеере ничего не играет (например spotify),
+	// то проверить другой плеер (например last fm)
 	var playing *TrackInfo
 
 	for i, player := range t.players {

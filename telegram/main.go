@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -33,7 +36,8 @@ func NewTelegramBot(ctx context.Context, cancel context.CancelFunc, cfg *Config)
 		commands: make(map[string]Commander),
 	}
 
-	b, err := bot.New(cfg.Token, bot.WithDefaultHandler(tg.defaultHandler))
+	b, err := bot.New(cfg.Token, bot.WithDefaultHandler(tg.defaultHandler),
+		bot.WithHTTPClient(30*time.Second, newTelegramHTTPClient()))
 	if err != nil {
 		return nil, err
 	}
@@ -154,4 +158,44 @@ func getUserIDByUpdate(update *models.Update) *int64 {
 		return nil
 	}
 	return &update.Message.From.ID
+}
+
+func newTelegramHTTPClient() *http.Client {
+	return &http.Client{
+		Transport: telegramTransport(),
+		Timeout:   15 * time.Second,
+	}
+}
+
+func telegramTransport() *http.Transport {
+	dialer := &net.Dialer{}
+
+	return &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+
+		DialContext: func(ctx context.Context, _, addr string) (net.Conn, error) {
+			// IPv4: short try.
+			v4ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
+			defer cancel()
+
+			conn, err4 := dialer.DialContext(v4ctx, "tcp4", addr)
+			if err4 == nil {
+				return conn, nil
+			}
+
+			// IPv6: use remaining timeout from the original context.
+			conn, err6 := dialer.DialContext(ctx, "tcp6", addr)
+			if err6 == nil {
+				return conn, nil
+			}
+
+			return nil, fmt.Errorf(
+				"telegram connection failed: ipv4: %w; ipv6: %v",
+				err4,
+				err6,
+			)
+		},
+
+		ForceAttemptHTTP2: true,
+	}
 }
