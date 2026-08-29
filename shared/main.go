@@ -3,7 +3,33 @@ package shared
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"encoding/json"
+	"time"
 )
+
+type Duration struct {
+	time.Duration
+}
+
+func (d *Duration) UnmarshalJSON(b []byte) error {
+	var v any
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	switch value := v.(type) {
+	case string:
+		var err error
+		d.Duration, err = time.ParseDuration(value)
+		if err != nil {
+			return err
+		}
+		return nil
+	case float64:
+		d.Duration = time.Duration(value)
+		return nil
+	}
+	return nil
+}
 
 func TrackProgressSupported(progressMs, durationMs *int) bool {
 	return progressMs != nil && durationMs != nil && *durationMs > 0

@@ -168,13 +168,16 @@
                     "minimum": 0
                 },
                 "successTTL": {
-                    "type": "string"
+                    "type": "string",
+                    "pattern": "^^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
                 },
                 "failureTTL": {
-                    "type": "string"
+                    "type": "string",
+                    "pattern": "^^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
                 },
                 "cleanupInterval": {
-                    "type": "string"
+                    "type": "string",
+                    "pattern": "^^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
                 }
             },
             "additionalProperties": false

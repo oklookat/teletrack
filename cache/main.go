@@ -47,14 +47,14 @@ func NewSQLiteCache(dbPath string, cfg *Config, logger *slog.Logger) (*SQLiteCac
 	if cfg.MaxEntries <= 0 {
 		cfg.MaxEntries = DefaultMaxEntries
 	}
-	if cfg.SuccessTTL <= 0 {
-		cfg.SuccessTTL = DefaultSuccessTTL
+	if cfg.SuccessTTL.Duration <= 0 {
+		cfg.SuccessTTL.Duration = DefaultSuccessTTL
 	}
-	if cfg.FailureTTL <= 0 {
-		cfg.FailureTTL = DefaultFailureTTL
+	if cfg.FailureTTL.Duration <= 0 {
+		cfg.FailureTTL.Duration = DefaultFailureTTL
 	}
-	if cfg.CleanupInterval <= 0 {
-		cfg.CleanupInterval = 1 * time.Hour
+	if cfg.CleanupInterval.Duration <= 0 {
+		cfg.CleanupInterval.Duration = 1 * time.Hour
 	}
 
 	if logger == nil {
@@ -88,12 +88,12 @@ func NewSQLiteCache(dbPath string, cfg *Config, logger *slog.Logger) (*SQLiteCac
 		return nil, fmt.Errorf("migrate schema: %w", err)
 	}
 
-	c.startCleanupWorker(cfg.CleanupInterval)
+	c.startCleanupWorker(cfg.CleanupInterval.Duration)
 	c.logger.Info("initialized sqlite cache",
 		slog.Int("max_entries", cfg.MaxEntries),
-		slog.Duration("success_ttl", cfg.SuccessTTL),
-		slog.Duration("failure_ttl", cfg.FailureTTL),
-		slog.Duration("cleanup_interval", cfg.CleanupInterval),
+		slog.Duration("success_ttl", cfg.SuccessTTL.Duration),
+		slog.Duration("failure_ttl", cfg.FailureTTL.Duration),
+		slog.Duration("cleanup_interval", cfg.CleanupInterval.Duration),
 	)
 
 	return c, nil
@@ -151,7 +151,7 @@ func (c *SQLiteCache) Get(ctx context.Context, key string) ([]byte, bool) {
 
 func (c *SQLiteCache) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
 	if ttl <= 0 {
-		ttl = c.cfg.SuccessTTL
+		ttl = c.cfg.SuccessTTL.Duration
 	}
 
 	now := time.Now().Unix()
@@ -177,7 +177,7 @@ func (c *SQLiteCache) Set(ctx context.Context, key string, value []byte, ttl tim
 
 func (c *SQLiteCache) SetFailed(ctx context.Context, key string, ttl time.Duration) error {
 	if ttl <= 0 {
-		ttl = c.cfg.FailureTTL
+		ttl = c.cfg.FailureTTL.Duration
 	}
 
 	now := time.Now().Unix()
