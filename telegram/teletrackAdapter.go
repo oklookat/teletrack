@@ -47,11 +47,11 @@ func (t *TeletrackMessenger) UpdatePlaying(ctx context.Context, msg *core.Playin
 
 	// Link preview.
 	var opts models.LinkPreviewOptions
-	if msg.TrackInfo != nil && msg.TrackInfo.CoverURL != "" {
+	if msg.TrackInfo != nil && msg.TrackInfo.CoverURL() != "" {
 		opts = models.LinkPreviewOptions{
 			IsDisabled:       bot.False(),
 			PreferLargeMedia: bot.True(),
-			URL:              &msg.TrackInfo.CoverURL,
+			URL:              new(msg.TrackInfo.CoverURL()),
 		}
 		params.LinkPreviewOptions = &opts
 	}
@@ -78,11 +78,11 @@ func (t *TeletrackMessenger) UpdateIdle(ctx context.Context, msg *core.PlayingMe
 
 	// Link preview.
 	var opts models.LinkPreviewOptions
-	if msg != nil && msg.TrackInfo != nil && msg.TrackInfo.CoverURL != "" {
+	if msg != nil && msg.TrackInfo != nil && msg.TrackInfo.CoverURL() != "" {
 		opts = models.LinkPreviewOptions{
 			IsDisabled:       bot.False(),
 			PreferLargeMedia: bot.True(),
-			URL:              &msg.TrackInfo.CoverURL,
+			URL:              new(msg.TrackInfo.CoverURL()),
 		}
 		params.LinkPreviewOptions = &opts
 	}

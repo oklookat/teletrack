@@ -7,7 +7,6 @@ import (
 
 	"github.com/oklookat/teletrack/core"
 	spotifyapi "github.com/zmb3/spotify/v2"
-	"golang.org/x/oauth2"
 )
 
 const (
@@ -15,14 +14,6 @@ const (
 	rateLimit        = rateLimitSec * time.Second
 	lastProgressIdle = 3 * (rateLimit / 2)
 )
-
-type Config struct {
-	Authorize    bool          `json:"authorize"`
-	RedirectURI  string        `json:"redirectURI"`
-	ClientID     string        `json:"clientID"`
-	ClientSecret string        `json:"clientSecret"`
-	Token        *oauth2.Token `json:"token"`
-}
 
 type Track struct {
 	ID string
@@ -42,7 +33,7 @@ type Track struct {
 	DurationMs int
 }
 
-func New(ctx context.Context, cfg *Config, saveToken func(*oauth2.Token) error) (*Player, error) {
+func New(ctx context.Context, cfg *Config, saveToken func(*Token) error) (*Player, error) {
 	auth := newAuthorizer(cfg)
 	token, err := auth.Authorize(ctx)
 	if err != nil {
@@ -66,7 +57,7 @@ type Player struct {
 	client *spotifyapi.Client
 }
 
-func (p *Player) GetPlaying(ctx context.Context) (*core.TrackInfo, error) {
+func (p *Player) GetPlaying(ctx context.Context) (core.TrackInfoer, error) {
 	curPlay, err := getCurrentPlaying(ctx, p.client)
 	if err != nil {
 		return nil, fmt.Errorf("getCurrentPlaying: %w", err)
@@ -75,18 +66,17 @@ func (p *Player) GetPlaying(ctx context.Context) (*core.TrackInfo, error) {
 		return nil, nil
 	}
 
-	track := &core.TrackInfo{
-		Track:            curPlay.Name,
-		Artist:           curPlay.Artist,
-		TrackLink:        "https://open.spotify.com/track/" + curPlay.ID,
-		TrackLinkService: "Spotify",
-		ProgressMs:       new(curPlay.ProgressMs),
-		DurationMs:       new(curPlay.DurationMs),
-		Playing:          curPlay.Playing,
+	track := &TrackInfo{
+		track:      curPlay.Name,
+		artist:     curPlay.Artist,
+		spotifyId:  curPlay.ID,
+		progressMs: new(curPlay.ProgressMs),
+		durationMs: new(curPlay.DurationMs),
+		playing:    curPlay.Playing,
 	}
-	track.GenerateID()
-	if curPlay.CoverURL != nil && len(*curPlay.CoverURL) > 0 {
-		track.CoverURL = *curPlay.CoverURL
+
+	if curPlay.CoverURL != nil && *curPlay.CoverURL != "" {
+		track.coverURL = *curPlay.CoverURL
 	}
 
 	return track, err

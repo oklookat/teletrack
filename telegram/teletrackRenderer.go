@@ -5,8 +5,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/oklookat/teletrack/ago"
 	"github.com/oklookat/teletrack/core"
-	"github.com/oklookat/teletrack/core/ago"
+	"github.com/oklookat/teletrack/shared"
 )
 
 type teletrackRenderer struct {
@@ -36,37 +37,37 @@ func newTeletrackPlayingMessage(msg *core.PlayingMessage) teletrackPlayingMessag
 
 	if msg.TrackInfo != nil {
 		// Status.
-		if msg.TrackInfo.Playing {
+		if msg.TrackInfo.Playing() {
 			result.Status = "▶️"
 		}
 
 		// Artist - Track.
-		artistTrack := fmt.Sprintf("%s - %s", msg.TrackInfo.Artist, msg.TrackInfo.Track)
+		artistTrack := fmt.Sprintf("%s - %s", msg.TrackInfo.Artist(), msg.TrackInfo.Track())
 		result.ArtistTrack = "`" + sanitizeCodeSpan(artistTrack) + "`"
 
 		// Progress.
-		if msg.TrackInfo.ProgressSupported() {
+		if shared.TrackProgressSupported(msg.TrackInfo.ProgressMs(), msg.TrackInfo.DurationMs()) {
 			result.Progress = new(fmt.Sprintf("%s %s %s",
-				result.formatTime(*msg.TrackInfo.ProgressMs),
-				result.formatProgressBar(*msg.TrackInfo.ProgressMs, *msg.TrackInfo.DurationMs),
-				result.formatTime(*msg.TrackInfo.DurationMs)))
+				result.formatTime(*msg.TrackInfo.ProgressMs()),
+				result.formatProgressBar(*msg.TrackInfo.ProgressMs(), *msg.TrackInfo.DurationMs()),
+				result.formatTime(*msg.TrackInfo.DurationMs())))
 		}
 
 		// Track link.
-		if msg.TrackInfo.TrackLink != "" {
-			result.Links = append(result.Links, tgLink("🎹 "+msg.TrackInfo.TrackLinkService, msg.TrackInfo.TrackLink))
+		if msg.TrackInfo.TrackLink() != "" {
+			result.Links = append(result.Links, tgLink("🎹 "+msg.TrackInfo.TrackLinkService(), msg.TrackInfo.TrackLink()))
 		}
 	}
 
-	if msg.ArtistInfo != nil && msg.ArtistInfo.Bio != "" {
+	if msg.ArtistInfo != nil && msg.ArtistInfo.Bio() != "" {
 		// Artist link.
-		if msg.ArtistInfo.Link != "" {
-			result.Links = append(result.Links, tgLink("👨‍🎨 "+msg.ArtistInfo.BioService, msg.ArtistInfo.Link))
+		if msg.ArtistInfo.Link() != "" {
+			result.Links = append(result.Links, tgLink("👨‍🎨 "+msg.ArtistInfo.BioService(), msg.ArtistInfo.Link()))
 		}
 
 		// Bio.
-		if msg.ArtistInfo.Bio != "" {
-			result.Bio = tgText(msg.ArtistInfo.Bio)
+		if msg.ArtistInfo.Bio() != "" {
+			result.Bio = tgText(msg.ArtistInfo.Bio())
 		}
 
 	}

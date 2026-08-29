@@ -73,6 +73,11 @@ func TestCleaner_Clean(t *testing.T) {
 			Expected: "Sophie Xeon (September 17, 1986 – January 30, 2021), mononymously known by her stage name Sophie (stylized in all caps), was a Scottish producer and singer-songwriter who worked in Los Angeles and lived in Greece. She came to prominence in 2013 with her single `Bipp``Elle` and released `Lemonade`/`Hard` the following year.",
 			Length:   1000,
 		},
+		{
+			Input:    "Midi Memory is a darkwave project based in Orlando, FL by Matt Messore (Cathedral Bells). Pulling from cold wave influences, layering rich analog tones with driving drum loops. https://midimemory.bandcamp.com",
+			Expected: "Midi Memory is a darkwave project based in Orlando, FL by Matt Messore (Cathedral Bells). Pulling from cold wave influences, layering rich analog tones with driving drum loops.",
+			Length:   1000,
+		},
 	}
 
 	cleaner := NewCleaner(500)

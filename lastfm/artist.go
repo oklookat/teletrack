@@ -9,7 +9,7 @@ import (
 
 // ArtistGetInfo fetches detailed info for an artist from Last.fm.
 // lang is an ISO639-2 code (see https://www.loc.gov/standards/iso639-2/php/code_list.php).
-func (c *Client) artistGetInfo(ctx context.Context, artistName, lang string) (*ArtistInfo, error) {
+func (c *Client) artistGetInfo(ctx context.Context, artistName, lang string) (*ArtistFull, error) {
 	const method = "artist.getInfo"
 
 	if artistName == "" {
@@ -55,10 +55,10 @@ func (c *Client) artistGetInfo(ctx context.Context, artistName, lang string) (*A
 		return nil, apiErr
 	}
 
-	var info ArtistInfo
-	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+	var full ArtistFull
+	if err := json.NewDecoder(resp.Body).Decode(&full); err != nil {
 		return nil, err
 	}
 
-	return &info, nil
+	return &full, nil
 }

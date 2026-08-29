@@ -193,7 +193,7 @@ type UserGetTopArtistsResponse struct {
 }
 
 // ArtistInfo represents detailed information about an artist.
-type ArtistInfo struct {
+type ArtistFull struct {
 	Artist struct {
 		Name       string  `json:"name"`
 		URL        string  `json:"url"`

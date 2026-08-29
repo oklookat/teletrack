@@ -1,84 +1,115 @@
+// Written by: Claude, Gemini, Grok
 package core
 
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/hashicorp/golang-lru/v2/expirable"
+	"github.com/oklookat/teletrack/shared"
 )
 
 const (
 	_rateLimit = 4 * time.Second
 
-	// How many consecutive "paused" ticks before we consider the player idle.
+	// Number of consecutive paused ticks required before playback
+	// is considered idle.
 	_pausedTicksThreshold = 4
 
-	// How long the reported progress can stay unchanged while Playing=true
-	// before we treat the track as stalled/idle.
+	// Maximum amount of time progress may remain unchanged while
+	// Playing=true before playback is considered stalled.
 	_lastProgressIdle = 6 * time.Second
+
+	// Timeout for background artist bio network requests.
+	_artistFetchTimeout = 10 * time.Second
+
+	// TTL for successfully resolved artist bios.
+	_artistCacheTTL = 24 * time.Hour
+
+	// TTL for failed lookups (dummy bio), kept short so we retry soon
+	// instead of failing silently for a whole day.
+	_artistCacheFailureTTL = 5 * time.Minute
 )
 
-type Player interface {
-	// Get current playing track.
-	GetPlaying(ctx context.Context) (*TrackInfo, error)
-}
-
-type Messenger interface {
-	UpdatePlaying(context.Context, *PlayingMessage) error
-	UpdateIdle(context.Context, *PlayingMessage) error
-}
-
-type Teletrack struct {
-	players      []Player
-	artistGetter ArtistGetter
-
-	messenger Messenger
-	reporter  ErrorReporter
-
-	mu sync.RWMutex
-
-	shutdown chan struct{}
-	done     chan struct{}
-
-	currentMessage PlayingMessage
-
+type playbackState struct {
 	lastTrackID      string
 	lastProgressMs   int
 	lastProgressTime time.Time
 
 	pausedTicks int
+	wasIdle     bool
+}
 
-	// wasIdle remembers whether the previous tick ended in the idle state.
-	// Used to detect the idle -> playing transition so stale timing state
-	// (accumulated while paused) doesn't leak into the "still playing" checks.
-	wasIdle bool
+type Teletrack struct {
+	players       []Player
+	artistGetters []ArtistGetter
+
+	// Two separate caches so failed lookups don't sit in memory
+	// alongside real bios with a mismatched TTL semantics.
+	cachedArtistInfoer       *expirable.LRU[string, ArtistInfoer]
+	cachedFailedArtistInfoer *expirable.LRU[string, struct{}]
+
+	messenger Messenger
+	reporter  ErrorReporter
+	logger    *slog.Logger
+
+	mu sync.RWMutex
+
+	// Guards background goroutines (artist bio fetches) so Stop()
+	// can wait for them to finish instead of leaking them.
+	wg sync.WaitGroup
+
+	shutdown chan struct{}
+	done     chan struct{}
+
+	currentMessage PlayingMessage
+	playback       playbackState
+
+	// Token used to invalidate stale async artist requests if the
+	// track (or currentMessage) changes while a fetch is in flight.
+	// Always guarded by mu; no atomics needed since every read/write
+	// already happens under the lock.
+	artistFetchID uint64
 }
 
 func New(
 	players []Player,
-	artistGetter ArtistGetter,
+	artistGetters []ArtistGetter,
 	messenger Messenger,
 	reporter ErrorReporter,
+	logger *slog.Logger,
 ) *Teletrack {
-	return &Teletrack{
-		players:      players,
-		artistGetter: artistGetter,
+	if logger == nil {
+		logger = slog.Default()
+	}
 
-		messenger:      messenger,
-		reporter:       reporter,
+	return &Teletrack{
+		players:                  players,
+		artistGetters:            artistGetters,
+		cachedArtistInfoer:       expirable.NewLRU[string, ArtistInfoer](100, nil, _artistCacheTTL),
+		cachedFailedArtistInfoer: expirable.NewLRU[string, struct{}](100, nil, _artistCacheFailureTTL),
+		messenger:                messenger,
+		reporter:                 reporter,
+		logger:                   logger,
+
 		currentMessage: newPlayingMessage(nil, nil),
 
 		shutdown: make(chan struct{}),
 		done:     make(chan struct{}),
 
-		// Start "idle" so the very first tick, if it's already playing,
-		// is treated as a fresh start rather than a stale resume.
-		wasIdle: true,
+		playback: playbackState{
+			wasIdle: true,
+		},
 	}
 }
 
 func (t *Teletrack) Start(ctx context.Context) error {
 	defer close(t.done)
+
+	t.logger.Info("starting teletrack core loop")
 
 	ticker := time.NewTicker(_rateLimit)
 	defer ticker.Stop()
@@ -86,19 +117,25 @@ func (t *Teletrack) Start(ctx context.Context) error {
 	for {
 		select {
 		case <-t.shutdown:
+			t.logger.Info("teletrack core loop stopped via shutdown signal")
 			return nil
+
 		case <-ctx.Done():
+			t.logger.Info("teletrack core loop stopped via context cancellation")
 			return ctx.Err()
+
 		case <-ticker.C:
 			if err := t.handleTick(ctx); err != nil {
-				if t.reporter != nil {
-					t.reporter.ReportError(ctx, err)
-				}
+				t.reportError(ctx, "handleTick failed", err)
 			}
 		}
 	}
 }
 
+// Stop signals the core loop to stop, waits for it to exit, then waits
+// for any in-flight background work (e.g. artist bio fetches) to finish
+// before returning. This makes it safe for callers to tear down shared
+// resources (messenger connections, etc.) right after Stop returns.
 func (t *Teletrack) Stop() {
 	select {
 	case <-t.shutdown:
@@ -106,214 +143,351 @@ func (t *Teletrack) Stop() {
 	default:
 		close(t.shutdown)
 	}
+
 	<-t.done
+	t.wg.Wait()
 }
 
 func (t *Teletrack) handleTick(ctx context.Context) error {
-	// TODO:
-	// добавить логику: если в одном плеере ничего не играет (например spotify),
-	// то проверить другой плеер (например last fm)
-	var playing *TrackInfo
-
-	for i, player := range t.players {
-		tInfo, err := player.GetPlaying(ctx)
-		if err != nil {
-			if i == len(t.players)-1 {
-				return err
-			}
-			t.reporter.ReportError(ctx, fmt.Errorf("handleTick.GetPlaying: %w", err))
-			continue
-		}
-		playing = tInfo
-		break
+	track, err := t.getPlaying(ctx)
+	if err != nil {
+		return err
 	}
 
-	if playing != nil {
-		if ok := playing.GenerateID(); !ok {
-			return nil
-		}
-	}
-
-	idle := t.isIdle(playing)
-
-	t.mu.Lock()
-	wasIdle := t.wasIdle
-	t.wasIdle = idle
-	t.mu.Unlock()
+	idle, wasIdle := t.updatePlaybackState(track)
 
 	if idle {
 		return t.onNothingPlaying(ctx)
 	}
 
-	if t.currentMessage.TrackInfo == nil {
-		return t.onNewTrackPlaying(ctx, playing)
-	}
-
-	now := time.Now()
-	supportsProgress := playing.ProgressSupported()
-
 	if wasIdle {
-		t.mu.Lock()
-		t.lastProgressTime = now
-		if supportsProgress {
-			t.lastProgressMs = *playing.ProgressMs
-		} else {
-			t.lastProgressMs = 0
-		}
-		t.mu.Unlock()
-
-		if playing.ID != t.getLastTrackID() {
-			t.mu.Lock()
-			t.lastTrackID = playing.ID
-			t.mu.Unlock()
-			return t.onNewTrackPlaying(ctx, playing)
-		}
-
-		return t.onOldTrackStillPlaying(ctx, playing)
+		return t.handleResume(ctx, track)
 	}
 
-	t.mu.RLock()
-	lastID := t.lastTrackID
-	lastProgressMs := t.lastProgressMs
-	lastProgressTime := t.lastProgressTime
-	t.mu.RUnlock()
-
-	if playing.ID == lastID {
-		// Если поставщик не отдаёт прогресс, у нас нет данных, чтобы
-		// судить о "залипании" — доверяем playing=true как есть.
-		if !supportsProgress {
-			return t.onOldTrackStillPlaying(ctx, playing)
-		}
-
-		currentProgress := *playing.ProgressMs
-		progressMoved := currentProgress != lastProgressMs
-
-		if progressMoved {
-			t.mu.Lock()
-			t.lastProgressMs = currentProgress
-			t.lastProgressTime = now
-			t.mu.Unlock()
-		} else if !lastProgressTime.IsZero() &&
-			now.Sub(lastProgressTime) > _lastProgressIdle {
-			// Playing=true, но прогресс не двигается слишком долго: считаем idle.
-			return t.onNothingPlaying(ctx)
-		}
-
-		return t.onOldTrackStillPlaying(ctx, playing)
-	}
-
-	t.mu.Lock()
-	t.lastTrackID = playing.ID
-	if supportsProgress {
-		t.lastProgressMs = *playing.ProgressMs
-	} else {
-		t.lastProgressMs = 0
-	}
-	t.lastProgressTime = now
-	t.mu.Unlock()
-
-	return t.onNewTrackPlaying(ctx, playing)
+	return t.handlePlaying(ctx, track)
 }
 
-func (t *Teletrack) getLastTrackID() string {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	return t.lastTrackID
+func (t *Teletrack) getPlaying(ctx context.Context) (TrackInfoer, error) {
+	// players are tried in priority order; the first one that returns
+	// a valid track wins.
+	for i, player := range t.players {
+		track, err := player.GetPlaying(ctx)
+		if err != nil {
+			t.reportError(
+				ctx,
+				"player failed to fetch playing track",
+				err,
+				slog.Int("player_index", i),
+			)
+			continue
+		}
+
+		if track == nil {
+			continue
+		}
+
+		if track.ID() == "" {
+			t.reportError(
+				ctx,
+				"player returned a track with empty ID",
+				fmt.Errorf("empty track ID from player %d", i),
+				slog.Int("player_index", i),
+			)
+			continue
+		}
+
+		t.logger.Debug("successfully retrieved active track",
+			slog.Int("player_index", i),
+			slog.String("track_id", track.ID()),
+			slog.String("artist", track.Artist()),
+			slog.String("title", track.Track()),
+		)
+
+		return track, nil
+	}
+
+	return nil, nil
 }
 
-// isIdle reports whether the player should currently be treated as idle.
-// It debounces short pauses: playback must be reported as paused for
-// _pausedTicksThreshold consecutive ticks before we call it idle.
-func (t *Teletrack) isIdle(track *TrackInfo) bool {
+func (t *Teletrack) updatePlaybackState(track TrackInfoer) (idle bool, wasIdle bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	wasIdle = t.playback.wasIdle
+
 	if track == nil {
-		t.pausedTicks = 0
-		return true
+		t.playback.pausedTicks = 0
+		t.playback.wasIdle = true
+		return true, wasIdle
 	}
 
-	if track.Playing {
-		t.pausedTicks = 0
-		return false
+	if track.Playing() {
+		t.playback.pausedTicks = 0
+		t.playback.wasIdle = false
+		return false, wasIdle
 	}
 
-	if t.pausedTicks >= _pausedTicksThreshold {
-		return true
-	} else {
-		t.pausedTicks++
-		return false
+	t.playback.pausedTicks++
+
+	if t.playback.pausedTicks >= _pausedTicksThreshold {
+		t.playback.wasIdle = true
+		return true, wasIdle
 	}
+
+	return false, wasIdle
+}
+
+func (t *Teletrack) handleResume(ctx context.Context, track TrackInfoer) error {
+	now := time.Now()
+
+	t.mu.Lock()
+	lastTrackID := t.playback.lastTrackID
+	t.playback.lastTrackID = track.ID()
+	t.playback.lastProgressMs = progressMs(track)
+	t.playback.lastProgressTime = now
+	t.mu.Unlock()
+
+	t.logger.Info("playback resumed", slog.String("track_id", track.ID()))
+
+	if track.ID() != lastTrackID {
+		return t.onNewTrackPlaying(ctx, track)
+	}
+
+	return t.onOldTrackStillPlaying(ctx, track)
+}
+
+func (t *Teletrack) handlePlaying(ctx context.Context, track TrackInfoer) error {
+	now := time.Now()
+
+	t.mu.RLock()
+	lastTrackID := t.playback.lastTrackID
+	lastProgressMs := t.playback.lastProgressMs
+	lastProgressTime := t.playback.lastProgressTime
+	t.mu.RUnlock()
+
+	if track.ID() != lastTrackID {
+		return t.handleTrackChange(ctx, track, now)
+	}
+
+	if !supportsProgress(track) {
+		return t.onOldTrackStillPlaying(ctx, track)
+	}
+
+	currentProgress := *track.ProgressMs()
+
+	if currentProgress != lastProgressMs {
+		t.mu.Lock()
+		t.playback.lastProgressMs = currentProgress
+		t.playback.lastProgressTime = now
+		t.mu.Unlock()
+
+		return t.onOldTrackStillPlaying(ctx, track)
+	}
+
+	if !lastProgressTime.IsZero() && now.Sub(lastProgressTime) > _lastProgressIdle {
+		t.logger.Warn("playback stalled (progress unchanged for too long)",
+			slog.String("track_id", track.ID()),
+			slog.Duration("idle_duration", now.Sub(lastProgressTime)),
+		)
+		return t.onNothingPlaying(ctx)
+	}
+
+	return t.onOldTrackStillPlaying(ctx, track)
+}
+
+func (t *Teletrack) handleTrackChange(ctx context.Context, track TrackInfoer, now time.Time) error {
+	t.mu.Lock()
+	t.playback.lastTrackID = track.ID()
+	t.playback.lastProgressMs = progressMs(track)
+	t.playback.lastProgressTime = now
+	t.mu.Unlock()
+
+	t.logger.Info("track changed",
+		slog.String("track_id", track.ID()),
+		slog.String("artist", track.Artist()),
+		slog.String("title", track.Track()),
+	)
+
+	return t.onNewTrackPlaying(ctx, track)
 }
 
 func (t *Teletrack) onNothingPlaying(ctx context.Context) error {
-	return t.messenger.UpdateIdle(ctx, &t.currentMessage)
+	t.mu.RLock()
+	message := t.currentMessage
+	t.mu.RUnlock()
+
+	return t.messenger.UpdateIdle(ctx, &message)
 }
 
-func (t *Teletrack) onOldTrackStillPlaying(
-	ctx context.Context,
-	track *TrackInfo,
-) error {
+func (t *Teletrack) onOldTrackStillPlaying(ctx context.Context, track TrackInfoer) error {
 	t.mu.Lock()
-
-	if t.currentMessage.TrackInfo != nil {
-		trackCopy := *t.currentMessage.TrackInfo
-
-		trackCopy.ProgressMs = track.ProgressMs
-		trackCopy.Playing = track.Playing
-
-		t.currentMessage.TrackInfo = &trackCopy
-	}
-
-	if track != nil && track.Time == nil {
-		t.currentMessage.Time = time.Now()
-	} else {
-		t.currentMessage.Time = *track.Time
-	}
-
+	t.currentMessage.TrackInfo = track
+	t.currentMessage.Time = trackTime(track)
+	message := t.currentMessage
 	t.mu.Unlock()
 
-	return t.messenger.UpdatePlaying(ctx, &t.currentMessage)
+	return t.messenger.UpdatePlaying(ctx, &message)
 }
 
-func (t *Teletrack) onNewTrackPlaying(
-	ctx context.Context,
-	track *TrackInfo,
-) error {
-	// if track == nil || track.ID == "" {
-	// 	return t.messenger.UpdatePlaying(ctx, &t.currentMessage)
-	// }
+// onNewTrackPlaying publishes the new track immediately (with a cached
+// or placeholder bio) and, on cache miss, kicks off a background fetch
+// for the artist bio. Every path that changes which track/message is
+// "current" bumps artistFetchID, so a slow in-flight fetch for a
+// previous track can never overwrite a newer message — this fixes the
+// stale-bio race that existed when only the cache-miss path bumped it.
+func (t *Teletrack) onNewTrackPlaying(ctx context.Context, track TrackInfoer) error {
+	artist := track.Artist()
 
-	bio, err := t.fetchArtistInfo(ctx, track.Artist)
-	if err != nil {
+	// Check LRU cache synchronously first.
+	if cachedBio, ok := t.cachedArtistInfoer.Get(artist); ok {
+		t.logger.Debug("cache hit for artist bio", slog.String("artist", artist))
+		message := newPlayingMessage(cachedBio, track)
+
+		t.mu.Lock()
+		t.currentMessage = message
+		t.artistFetchID++ // invalidate any fetch still in flight for the previous track
+		t.mu.Unlock()
+
+		return t.messenger.UpdatePlaying(ctx, &message)
+	}
+
+	// Cache miss: publish track immediately with placeholder/dummy bio.
+	message := newPlayingMessage(dummyArtistInfo{}, track)
+
+	t.mu.Lock()
+	t.currentMessage = message
+	t.artistFetchID++
+	fetchID := t.artistFetchID
+	trackID := track.ID()
+	t.mu.Unlock()
+
+	if err := t.messenger.UpdatePlaying(ctx, &message); err != nil {
 		return err
 	}
 
+	// Trigger async background bio lookup. Tracked via WaitGroup so
+	// Stop() can wait for it, and uses a context derived from the
+	// caller's ctx (not context.Background()) so it's cancelled
+	// promptly on shutdown instead of running for up to
+	// _artistFetchTimeout after Stop() has already returned.
+	t.wg.Add(1)
+	go t.fetchArtistInfoAsync(ctx, artist, trackID, fetchID)
+
+	return nil
+}
+
+func (t *Teletrack) fetchArtistInfoAsync(parentCtx context.Context, artist, trackID string, fetchID uint64) {
+	defer t.wg.Done()
+
+	fetchCtx, cancel := context.WithTimeout(parentCtx, _artistFetchTimeout)
+	defer cancel()
+
+	bio, found := t.fetchArtistInfo(fetchCtx, artist)
+	if !found {
+		bio = dummyArtistInfo{}
+	}
+
 	t.mu.Lock()
-	t.currentMessage = newPlayingMessage(bio, track)
+
+	// Guard against race conditions: discard the fetched bio if a
+	// newer message was published while this fetch was in flight
+	// (covers both "another track started playing" and "a cache hit
+	// for a different track happened").
+	if t.artistFetchID != fetchID || t.currentMessage.TrackInfo == nil || t.currentMessage.TrackInfo.ID() != trackID {
+		t.mu.Unlock()
+		t.logger.Debug("discarding outdated artist bio",
+			slog.String("artist", artist),
+			slog.Uint64("fetch_id", fetchID),
+		)
+		return
+	}
+
+	// Enrich message and update UI asynchronously.
+	t.currentMessage.ArtistInfo = bio
+	updatedMessage := t.currentMessage
 	t.mu.Unlock()
 
-	return t.messenger.UpdatePlaying(ctx, &t.currentMessage)
+	// Use the caller-derived context (already cancelled on shutdown)
+	// rather than a detached one, and track via WaitGroup like the
+	// parent fetch so Stop() waits for this too.
+	if err := t.messenger.UpdatePlaying(parentCtx, &updatedMessage); err != nil {
+		t.reportError(parentCtx, "failed to update playing message with async artist bio", err)
+	}
 }
 
-type ArtistGetter interface {
-	// First lang is preferred. Other langs for fallback if first lang doesnt have bio.
+// fetchArtistInfo tries each getter in order and caches the result.
+// Successful lookups are cached for _artistCacheTTL; failures (no
+// getter returned a usable bio) are cached only for
+// _artistCacheFailureTTL so transient errors don't suppress retries
+// for a full day. found=false with a nil ArtistInfoer means "no bio
+// available"; the caller decides how to represent that (dummy bio).
+func (t *Teletrack) fetchArtistInfo(ctx context.Context, artist string) (ArtistInfoer, bool) {
+	if _, recentlyFailed := t.cachedFailedArtistInfoer.Get(artist); recentlyFailed {
+		t.logger.Debug("skipping artist lookup: recent failure cached", slog.String("artist", artist))
+		return nil, false
+	}
 
-	// Langs format:
+	for i, getter := range t.artistGetters {
+		artistInfo, err := getter.GetArtistInfo(ctx, artist, []string{"en", "ru"})
+		if err != nil {
+			t.reportError(
+				ctx,
+				"artist getter failed",
+				err,
+				slog.Int("getter_index", i),
+				slog.String("artist", artist),
+			)
+			continue
+		}
 
-	// ISO639-2 code (see https://www.loc.gov/standards/iso639-2/php/code_list.php
-	GetArtistInfo(ctx context.Context, artist string, langs []string) (*ArtistInfo, error)
+		if artistInfo.Bio() == "" || artistInfo.BioService() == "" || artistInfo.Link() == "" {
+			t.logger.Debug("artist info incomplete, trying next getter",
+				slog.Int("getter_index", i),
+				slog.String("artist", artist),
+			)
+			continue
+		}
+
+		t.cachedArtistInfoer.Add(artist, artistInfo)
+		return artistInfo, true
+	}
+
+	t.logger.Info("no artist bio found, using fallback dummy bio", slog.String("artist", artist))
+	t.cachedFailedArtistInfoer.Add(artist, struct{}{})
+	return nil, false
 }
 
-type ArtistInfo struct {
-	Link       string
-	Bio        string
-	BioService string
+func (t *Teletrack) reportError(ctx context.Context, msg string, err error, attrs ...slog.Attr) {
+	args := make([]any, 0, len(attrs)+1)
+	args = append(args, slog.Any("error", err))
+	for _, attr := range attrs {
+		args = append(args, attr)
+	}
+
+	t.logger.Error(msg, args...)
+
+	if t.reporter != nil {
+		t.reporter.ReportError(ctx, fmt.Errorf("%s: %w", msg, err))
+	}
 }
 
-func (t *Teletrack) fetchArtistInfo(
-	ctx context.Context,
-	artist string,
-) (*ArtistInfo, error) {
-	return t.artistGetter.GetArtistInfo(ctx, artist, []string{"en", "ru"})
+func supportsProgress(track TrackInfoer) bool {
+	return shared.TrackProgressSupported(
+		track.ProgressMs(),
+		track.DurationMs(),
+	)
+}
+
+func progressMs(track TrackInfoer) int {
+	if !supportsProgress(track) {
+		return 0
+	}
+	return *track.ProgressMs()
+}
+
+func trackTime(track TrackInfoer) time.Time {
+	if track.Time() != nil {
+		return *track.Time()
+	}
+	return time.Now()
 }

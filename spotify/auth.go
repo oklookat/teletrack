@@ -11,7 +11,6 @@ import (
 
 	"github.com/zmb3/spotify/v2"
 	spotifyauth "github.com/zmb3/spotify/v2/auth"
-	"golang.org/x/oauth2"
 )
 
 var (
@@ -29,7 +28,7 @@ type authorizer struct {
 	cfg *Config
 }
 
-func (a authorizer) Authorize(ctx context.Context) (*oauth2.Token, error) {
+func (a authorizer) Authorize(ctx context.Context) (*Token, error) {
 	if !a.cfg.Authorize {
 		return nil, nil
 	}
@@ -50,7 +49,7 @@ func (a authorizer) Authorize(ctx context.Context) (*oauth2.Token, error) {
 	return token, nil
 }
 
-func (a authorizer) getTokens(ctx context.Context, onURL func(string)) (*oauth2.Token, error) {
+func (a authorizer) getTokens(ctx context.Context, onURL func(string)) (*Token, error) {
 	auth := a.getAuthenticator(
 		a.cfg.RedirectURI,
 		a.cfg.ClientID,
@@ -89,7 +88,6 @@ func (a authorizer) getTokens(ctx context.Context, onURL func(string)) (*oauth2.
 			return nil, errors.New("received nil Spotify client")
 		}
 
-		// Останавливаем временный OAuth сервер
 		cancel()
 
 		token, err := client.Token()
@@ -99,7 +97,7 @@ func (a authorizer) getTokens(ctx context.Context, onURL func(string)) (*oauth2.
 
 		slog.Info("Spotify token received")
 
-		return token, nil
+		return newToken(token), nil
 
 	case err := <-errCh:
 		cancel()
@@ -291,7 +289,7 @@ func (a authorizer) getClient(
 	redirectURI,
 	clientID,
 	clientSecret string,
-	token *oauth2.Token,
+	token *Token,
 ) *spotify.Client {
 
 	auth := a.getAuthenticator(
@@ -302,7 +300,7 @@ func (a authorizer) getClient(
 
 	httpClient := auth.Client(
 		context.Background(),
-		token,
+		token.oauth2(),
 	)
 
 	return spotify.New(

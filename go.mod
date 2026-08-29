@@ -7,6 +7,7 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/zmb3/spotify/v2 v2.4.3
 	golang.org/x/oauth2 v0.36.0
+	golang.org/x/time v0.15.0
 )
 
-require golang.org/x/time v0.15.0 // indirect
+require github.com/stretchr/testify v1.11.1 // indirect

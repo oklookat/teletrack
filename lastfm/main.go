@@ -12,23 +12,13 @@ import (
 	"github.com/hashicorp/golang-lru/v2/expirable"
 
 	"github.com/oklookat/teletrack/core"
-	"github.com/oklookat/teletrack/core/lastfm/lastfmclean"
+	"github.com/oklookat/teletrack/lastfm/lastfmclean"
 	"golang.org/x/time/rate"
 )
 
 var _apiURL, _ = url.Parse("https://ws.audioscrobbler.com/2.0/")
 
-type Config struct {
-	APIKey   string `json:"apiKey"`
-	Username string `json:"username"`
-}
-
 type (
-	ArtistBio struct {
-		Name string
-		Bio  string
-		Link string
-	}
 	RecentTrack struct {
 		Artist     string
 		Track      string
@@ -45,7 +35,7 @@ type Client struct {
 
 	config *Config
 
-	cachedInfo *expirable.LRU[string, *core.ArtistInfo]
+	cachedInfo *expirable.LRU[string, *ArtistInfo]
 }
 
 // NewClient creates a new Last.fm API client.
@@ -64,7 +54,7 @@ func NewClient(cfg *Config) (*Client, error) {
 		limiter: rate.NewLimiter(rate.Every(time.Second), 1),
 
 		config:     cfg,
-		cachedInfo: expirable.NewLRU[string, *core.ArtistInfo](50, nil, 10*time.Minute),
+		cachedInfo: expirable.NewLRU[string, *ArtistInfo](50, nil, 10*time.Minute),
 	}, nil
 }
 
@@ -83,12 +73,12 @@ func (c *Client) do(ctx context.Context, req *http.Request) (*http.Response, err
 // Langs format:
 //
 // ISO639-2 code (see https://www.loc.gov/standards/iso639-2/php/code_list.php
-func (c *Client) GetArtistInfo(ctx context.Context, artist string, langs []string) (*core.ArtistInfo, error) {
+func (c *Client) GetArtistInfo(ctx context.Context, artist string, langs []string) (core.ArtistInfoer, error) {
 	if bio, ok := c.cachedInfo.Get(artist); ok {
 		return bio, nil
 	}
 
-	var gotInfo *ArtistInfo
+	var gotInfo *ArtistFull
 
 	for _, lang := range langs {
 		info, err := c.artistGetInfo(ctx, artist, lang)
@@ -105,17 +95,13 @@ func (c *Client) GetArtistInfo(ctx context.Context, artist string, langs []strin
 		return nil, errors.New("gotInfo == nil")
 	}
 
-	result := &core.ArtistInfo{
-		Link:       gotInfo.Artist.URL,
-		Bio:        lastfmclean.NewCleaner().Clean(gotInfo.Artist.Bio.Summary),
-		BioService: "Last.fm",
-	}
+	result := newArtistInfo(gotInfo.Artist.URL, lastfmclean.NewCleaner().Clean(gotInfo.Artist.Bio.Summary))
 	c.cachedInfo.Add(artist, result)
 
 	return result, nil
 }
 
-func (c *Client) GetPlaying(ctx context.Context) (*core.TrackInfo, error) {
+func (c *Client) GetPlaying(ctx context.Context) (core.TrackInfoer, error) {
 	resp, err := c.userGetRecentTracks(ctx, new(1), nil, nil, new(true), nil)
 	if err != nil {
 		return nil, err
@@ -142,16 +128,18 @@ func (c *Client) GetPlaying(ctx context.Context) (*core.TrackInfo, error) {
 		}
 	}
 
-	return &core.TrackInfo{
-		Playing:          playingNow,
-		Artist:           track.Artist.Name,
-		Track:            track.Name,
-		TrackLink:        track.URL,
-		TrackLinkService: "Last.fm",
-		CoverURL:         cover,
-		ProgressMs:       nil,
-		DurationMs:       nil,
-		Time:             track.Date.ToTime(),
+	trackTime := track.Date.ToTime()
+	if trackTime == nil {
+		trackTime = new(time.Now())
+	}
+
+	return &TrackInfo{
+		playing:   playingNow,
+		artist:    track.Artist.Name,
+		track:     track.Name,
+		trackLink: track.URL,
+		coverURL:  cover,
+		time:      trackTime,
 	}, nil
 }
 

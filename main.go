@@ -3,38 +3,29 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
 	"log/slog"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"github.com/oklookat/teletrack/config"
 	"github.com/oklookat/teletrack/core"
+	"github.com/oklookat/teletrack/loader"
 	"github.com/oklookat/teletrack/telegram"
-	"golang.org/x/oauth2"
-
-	"github.com/oklookat/teletrack/core/lastfm"
-	"github.com/oklookat/teletrack/core/spotify"
 )
 
-var version = "unknown"
+var version = "1.0.0"
 
 func main() {
+	slog.Info("teletrack", "version", version)
+
 	// Flags
-	configPath := flag.String("c", "config.json", "config path")
+	configPath := flag.String("c", "", "config path")
 	flag.Parse()
 
-	slog.Info("teletrack " + version)
-
 	// Boot configuration
-	if err := config.Boot(*configPath); err != nil {
-		if strings.Contains(err.Error(), "config created") {
-			println(err.Error())
-			os.Exit(0)
-		}
-		chk("config boot failed", err)
+	if err := config.Boot(configPath); err != nil {
+		chk("config.Boot", err)
 	}
 
 	ctx, cancel := signal.NotifyContext(
@@ -50,42 +41,16 @@ func main() {
 		chk("failed to start telegram bot", err)
 	}
 
-	// Players
-	var players []core.Player
+	players, artistGetters, err := loader.Load(ctx, version)
+	chk("loader.Load", err)
 
-	// Spotify
-	enableSpotify := config.C.Spotify.ClientID != ""
-	if enableSpotify {
-		spotifyPlayer, err := spotify.New(ctx, config.C.Spotify, func(t *oauth2.Token) error {
-			config.C.Spotify.Authorize = false
-			config.C.Spotify.Token = t
-			return config.C.Save()
-		})
-		if err != nil {
-			chk("spotify.New", err)
-		}
-		players = append(players, spotifyPlayer)
-	}
-
-	// last.fm
-	lastFm, err := lastfm.NewClient(config.C.LastFm)
-	if err != nil {
-		chk("lastfm.NewClient", err)
-	}
-	players = append(players, lastFm)
-
-	//
 	tgTeletrack := telegram.NewTeletrackMessenger(tgBot)
-	teletrackd := core.New(players, lastFm, tgTeletrack, tgTeletrack)
+	teletrackd := core.New(players, artistGetters, tgTeletrack, tgTeletrack, slog.Default())
 
 	go func() {
-		slog.Info("Starting teletrack...")
 		err := teletrackd.Start(ctx)
 		if err != nil {
-			log.Printf(
-				"teletrack stopped: %v",
-				err,
-			)
+			slog.Error("teletrackd.Start", "error", err.Error())
 		}
 	}()
 
