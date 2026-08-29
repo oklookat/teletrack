@@ -13,58 +13,72 @@ import (
 	"github.com/oklookat/teletrack/core"
 )
 
-func NewTeletrackMessenger(tg *TelegramBot) *TeletrackMessenger {
-	if tg == nil {
-		return nil
-	}
-	return &TeletrackMessenger{
-		tg:     tg,
-		render: &teletrackRenderer{},
-	}
-}
-
 type TeletrackMessenger struct {
 	tg     *TelegramBot
 	render *teletrackRenderer
 
 	lastMessageMD5 string
+	logger         *slog.Logger
+}
+
+func NewTeletrackMessenger(tg *TelegramBot) *TeletrackMessenger {
+	if tg == nil {
+		return nil
+	}
+
+	// Scope logger to this component with context fields
+	logger := tg.logger.With(
+		slog.String("component", "teletrack_messenger"),
+		slog.String("chat_id", tg.cfg.ChatID),
+		slog.Int("message_id", tg.cfg.MessageID),
+	)
+
+	return &TeletrackMessenger{
+		tg:     tg,
+		render: &teletrackRenderer{},
+		logger: logger,
+	}
 }
 
 func (t *TeletrackMessenger) UpdatePlaying(ctx context.Context, msg *core.PlayingMessage) error {
 	if msg == nil {
-		return errors.New("nil PlayingMessage")
+		err := errors.New("nil PlayingMessage provided")
+		t.logger.ErrorContext(ctx, "failed to update playing message", slog.Any("error", err))
+		return err
 	}
 
 	params := &bot.EditMessageTextParams{
 		ChatID:    t.tg.cfg.ChatID,
 		MessageID: t.tg.cfg.MessageID,
 		ParseMode: models.ParseModeMarkdown,
-		Text:      t.render.BuildMessage(msg),
+		Text:      t.render.BuildMessage(ctx, msg),
 		LinkPreviewOptions: &models.LinkPreviewOptions{
 			IsDisabled: bot.True(),
 		},
 	}
 
-	// Link preview.
-	var opts models.LinkPreviewOptions
+	// Link preview
 	if msg.TrackInfo != nil && msg.TrackInfo.CoverURL() != "" {
-		opts = models.LinkPreviewOptions{
+		coverURL := msg.TrackInfo.CoverURL()
+		params.LinkPreviewOptions = &models.LinkPreviewOptions{
 			IsDisabled:       bot.False(),
 			PreferLargeMedia: bot.True(),
-			URL:              new(msg.TrackInfo.CoverURL()),
+			URL:              new(coverURL),
 		}
-		params.LinkPreviewOptions = &opts
 	}
 
 	if err := t.editMessageText(ctx, params); err != nil {
-		return err
+		t.logger.ErrorContext(ctx, "failed to update playing status message",
+			slog.Any("error", err),
+		)
+		return fmt.Errorf("update playing status failed: %w", err)
 	}
 
 	return nil
 }
 
 func (t *TeletrackMessenger) UpdateIdle(ctx context.Context, msg *core.PlayingMessage) error {
-	msgStr := t.render.BuildIdleMessage(msg)
+	msgStr := t.render.BuildIdleMessage(ctx, msg)
 
 	params := &bot.EditMessageTextParams{
 		ChatID:    t.tg.cfg.ChatID,
@@ -76,35 +90,53 @@ func (t *TeletrackMessenger) UpdateIdle(ctx context.Context, msg *core.PlayingMe
 		},
 	}
 
-	// Link preview.
-	var opts models.LinkPreviewOptions
+	// Link preview
 	if msg != nil && msg.TrackInfo != nil && msg.TrackInfo.CoverURL() != "" {
-		opts = models.LinkPreviewOptions{
+		coverURL := msg.TrackInfo.CoverURL()
+		params.LinkPreviewOptions = &models.LinkPreviewOptions{
 			IsDisabled:       bot.False(),
 			PreferLargeMedia: bot.True(),
-			URL:              new(msg.TrackInfo.CoverURL()),
+			URL:              new(coverURL),
 		}
-		params.LinkPreviewOptions = &opts
 	}
 
 	if err := t.editMessageText(ctx, params); err != nil {
-		return err
+		t.logger.ErrorContext(ctx, "failed to update idle status message",
+			slog.Any("error", err),
+		)
+		return fmt.Errorf("update idle status failed: %w", err)
 	}
 
 	return nil
 }
 
 func (t *TeletrackMessenger) ReportError(ctx context.Context, err error) {
+	if err == nil {
+		return
+	}
+
+	if t.tg == nil || t.tg.bot == nil || t.tg.cfg.ServiceChatID == "" {
+		t.logger.WarnContext(ctx, "cannot report error: telegram bot or service chat ID uninitialized",
+			slog.Any("reported_error", err),
+		)
+		return
+	}
+
 	if _, sendErr := t.tg.bot.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: t.tg.cfg.ServiceChatID,
 		Text:   fmt.Sprintf("Error: %s", err.Error()),
 	}); sendErr != nil {
-		slog.Error("failed to send error message", "err", sendErr)
+		t.logger.ErrorContext(ctx, "failed to send error report to service chat",
+			slog.Any("error", sendErr),
+			slog.Any("reported_error", err),
+			slog.String("service_chat_id", t.tg.cfg.ServiceChatID),
+		)
 	}
 }
 
 func (t *TeletrackMessenger) editMessageText(ctx context.Context, params *bot.EditMessageTextParams) error {
 	if params == nil || params.Text == "" {
+		t.logger.DebugContext(ctx, "skipped message edit: empty params or text")
 		return nil
 	}
 
@@ -112,11 +144,13 @@ func (t *TeletrackMessenger) editMessageText(ctx context.Context, params *bot.Ed
 	newMsgHashStr := hex.EncodeToString(newMsgHash[:])
 
 	if t.lastMessageMD5 == newMsgHashStr {
+		t.logger.DebugContext(ctx, "skipped message edit: content unchanged",
+			slog.String("content_md5", newMsgHashStr),
+		)
 		return nil
 	}
 
-	_, err := t.tg.bot.EditMessageText(ctx, params)
-	if err != nil {
+	if _, err := t.tg.bot.EditMessageText(ctx, params); err != nil {
 		return err
 	}
 

@@ -279,6 +279,5 @@ func (c *SQLiteCache) Close() error {
 		return err
 	}
 
-	c.logger.Info("sqlite cache closed successfully")
 	return nil
 }

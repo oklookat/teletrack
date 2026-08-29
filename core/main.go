@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -54,15 +55,16 @@ type Teletrack struct {
 }
 
 func New(
+	version string,
 	players []Player,
 	artistGetters []ArtistGetter,
 	c cache.Cache,
 	messenger Messenger,
 	reporter ErrorReporter,
 	logger *slog.Logger,
-) *Teletrack {
+) (*Teletrack, error) {
 	if c == nil {
-		panic("cache instance is required")
+		return nil, errors.New("cache instance is required")
 	}
 
 	if logger == nil {
@@ -82,7 +84,7 @@ func New(
 		playback: playbackState{
 			wasIdle: true,
 		},
-	}
+	}, nil
 }
 
 func (t *Teletrack) Start(parentCtx context.Context) error {

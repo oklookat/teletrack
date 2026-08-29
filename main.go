@@ -17,7 +17,7 @@ import (
 	"github.com/oklookat/teletrack/telegram"
 )
 
-var version = "1.0.0"
+var version = "1.0.0-debug"
 
 func main() {
 	slog.Info("teletrack", "version", version)
@@ -42,7 +42,7 @@ func main() {
 	defer cancel()
 
 	// Telegram bot
-	tgBot, err := telegram.NewTelegramBot(ctx, cancel, config.C.Telegram)
+	tgBot, err := telegram.NewTelegramBot(ctx, cancel, version, config.C.Telegram)
 	if err != nil {
 		chk("failed to start telegram bot", err)
 	}
@@ -56,7 +56,7 @@ func main() {
 	chk("core.NewSQLiteArtistCache", err)
 	defer cache.Close()
 
-	teletrackd := core.New(players, artistGetters, cache, tgTeletrack, tgTeletrack, slog.Default())
+	teletrackd := core.New(version, players, artistGetters, cache, tgTeletrack, tgTeletrack, slog.Default())
 
 	go func() {
 		err := teletrackd.Start(ctx)
