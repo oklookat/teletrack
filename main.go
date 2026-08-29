@@ -18,7 +18,7 @@ import (
 	"github.com/oklookat/teletrack/telegram"
 )
 
-var version = "1.0.0-debug"
+var version = "v1.0.0-debug"
 
 func main() {
 	if err := run(); err != nil {

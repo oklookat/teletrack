@@ -34,7 +34,7 @@ func (VersionCommand) Help() string { return "Shows installed version." }
 func (VersionCommand) Handler(ctx context.Context, b *TelegramBot, args []string) error {
 	_, sendErr := b.bot.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: b.cfg.ServiceChatID,
-		Text:   "v" + _version,
+		Text:   _version,
 	})
 	return sendErr
 }
