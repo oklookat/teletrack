@@ -1,13 +1,16 @@
 {
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://github.com/oklookat/teletrack/raw/refs/heads/main/config.schema.json",
     "title": "Teletrack Configuration",
     "type": "object",
     "required": [
         "telegram",
-        "lastFm",
-        "spotify"
+        "players"
     ],
     "properties": {
+        "$schema": {
+            "type": "string"
+        },
         "telegram": {
             "type": "object",
             "required": [
@@ -25,8 +28,7 @@
                     "type": "integer"
                 },
                 "chatID": {
-                    "type": "string",
-                    "pattern": "^@"
+                    "type": "string"
                 },
                 "serviceChatID": {
                     "type": "string"
@@ -56,14 +58,14 @@
         "spotify": {
             "type": "object",
             "required": [
-                "authorize",
                 "redirectURI",
                 "clientID",
                 "clientSecret"
             ],
             "properties": {
                 "authorize": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "default": false
                 },
                 "redirectURI": {
                     "type": "string"
@@ -88,36 +90,177 @@
                             "type": "string"
                         },
                         "token_type": {
-                            "const": "Bearer"
+                            "type": "string"
                         },
                         "refresh_token": {
                             "type": "string"
                         },
                         "expiry": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "date-time"
                         },
                         "expires_in": {
                             "type": "integer"
                         }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "if": {
+                "properties": {
+                    "authorize": {
+                        "const": false
                     }
                 }
             },
-            "allOf": [
-                {
-                    "if": {
+            "then": {
+                "required": [
+                    "token"
+                ]
+            },
+            "additionalProperties": false
+        },
+        "listenBrainz": {
+            "type": "object",
+            "required": [
+                "username",
+                "token"
+            ],
+            "properties": {
+                "username": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        },
+        "players": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+                "type": "string",
+                "enum": [
+                    "spotify",
+                    "lastFm",
+                    "listenBrainz"
+                ]
+            }
+        },
+        "bios": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+                "type": "string",
+                "enum": [
+                    "lastFm",
+                    "listenBrainz"
+                ]
+            }
+        },
+        "cache": {
+            "type": "object",
+            "properties": {
+                "maxEntries": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "successTTL": {
+                    "type": "string"
+                },
+                "failureTTL": {
+                    "type": "string"
+                },
+                "cleanupInterval": {
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        }
+    },
+    "allOf": [
+        {
+            "comment": "If 'spotify' is listed in players, the top-level spotify object is required.",
+            "if": {
+                "properties": {
+                    "players": {
+                        "contains": {
+                            "const": "spotify"
+                        }
+                    }
+                },
+                "required": [
+                    "players"
+                ]
+            },
+            "then": {
+                "required": [
+                    "spotify"
+                ]
+            }
+        },
+        {
+            "comment": "If 'lastFm' is listed in players or bios, the top-level lastFm object is required.",
+            "if": {
+                "anyOf": [
+                    {
                         "properties": {
-                            "authorize": {
-                                "const": false
+                            "players": {
+                                "contains": {
+                                    "const": "lastFm"
+                                }
                             }
                         }
                     },
-                    "then": {
-                        "required": [
-                            "token"
-                        ]
+                    {
+                        "properties": {
+                            "bios": {
+                                "contains": {
+                                    "const": "lastFm"
+                                }
+                            }
+                        }
                     }
-                }
-            ]
+                ]
+            },
+            "then": {
+                "required": [
+                    "lastFm"
+                ]
+            }
+        },
+        {
+            "comment": "If 'listenBrainz' is listed in players or bios, the top-level listenBrainz object is required.",
+            "if": {
+                "anyOf": [
+                    {
+                        "properties": {
+                            "players": {
+                                "contains": {
+                                    "const": "listenBrainz"
+                                }
+                            }
+                        }
+                    },
+                    {
+                        "properties": {
+                            "bios": {
+                                "contains": {
+                                    "const": "listenBrainz"
+                                }
+                            }
+                        }
+                    }
+                ]
+            },
+            "then": {
+                "required": [
+                    "listenBrainz"
+                ]
+            }
         }
-    }
+    ],
+    "additionalProperties": false
 }

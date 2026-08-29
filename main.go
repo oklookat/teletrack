@@ -6,8 +6,11 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path"
+	"path/filepath"
 	"syscall"
 
+	"github.com/oklookat/teletrack/cache"
 	"github.com/oklookat/teletrack/config"
 	"github.com/oklookat/teletrack/core"
 	"github.com/oklookat/teletrack/loader"
@@ -21,7 +24,10 @@ func main() {
 
 	// Flags
 	configPath := flag.String("c", "", "config path")
+	statePath := flag.String("D", "./data", "state and data storage")
 	flag.Parse()
+
+	dataDir := createDataDir(statePath)
 
 	// Boot configuration
 	if err := config.Boot(configPath); err != nil {
@@ -45,7 +51,12 @@ func main() {
 	chk("loader.Load", err)
 
 	tgTeletrack := telegram.NewTeletrackMessenger(tgBot)
-	teletrackd := core.New(players, artistGetters, tgTeletrack, tgTeletrack, slog.Default())
+
+	cache, err := cache.NewSQLiteCache(path.Join(dataDir, "cache.db"), config.C.Cache, slog.Default())
+	chk("core.NewSQLiteArtistCache", err)
+	defer cache.Close()
+
+	teletrackd := core.New(players, artistGetters, cache, tgTeletrack, tgTeletrack, slog.Default())
 
 	go func() {
 		err := teletrackd.Start(ctx)
@@ -65,4 +76,19 @@ func chk(msg string, err error) {
 	}
 	slog.Error(msg, "error", err)
 	os.Exit(1)
+}
+
+func createDataDir(statePath *string) string {
+	trueStatePath := "./"
+
+	envStatePath := os.Getenv("TELETRACK_DATA")
+	if envStatePath != "" {
+		trueStatePath = envStatePath
+	} else if statePath != nil && *statePath != "" {
+		trueStatePath = *statePath
+	}
+
+	trueStatePath = filepath.Clean(trueStatePath)
+	chk("createDataDir", os.MkdirAll(trueStatePath, 0700))
+	return trueStatePath
 }

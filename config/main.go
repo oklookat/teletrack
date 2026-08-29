@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/oklookat/teletrack/cache"
 	"github.com/oklookat/teletrack/lastfm"
 	"github.com/oklookat/teletrack/listenbrainz"
 	"github.com/oklookat/teletrack/spotify"
@@ -44,6 +45,7 @@ var C = &Config{
 	ListenBrainz: &listenbrainz.Config{},
 	Players:      []Service{},
 	Bios:         []Service{},
+	Cache:        cache.DefaultConfig(),
 }
 
 type Config struct {
@@ -61,6 +63,9 @@ type Config struct {
 	// Data sources.
 	Players []Service `json:"players"`
 	Bios    []Service `json:"bios"`
+
+	//
+	Cache *cache.Config
 
 	// Internal fields.
 	path string `json:"-"`

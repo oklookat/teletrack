@@ -32,3 +32,5 @@ teletrack-prod/
 teletrack
 
 __debug*
+
+data/*

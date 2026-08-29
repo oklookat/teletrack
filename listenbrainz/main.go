@@ -15,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/oklookat/teletrack/core"
 
 	"golang.org/x/time/rate"
@@ -69,8 +68,6 @@ type Client struct {
 	config    *Config
 	userAgent string
 
-	cachedInfo *expirable.LRU[string, *ArtistInfo]
-
 	// Error tracking state for suppress consecutive repeated errors
 	lastErrMu  sync.Mutex
 	lastWas5xx bool
@@ -88,12 +85,11 @@ func NewClient(cfg *Config, version string) (*Client, error) {
 	ua := fmt.Sprintf("teletrack/%s (oklocate@gmail.com; https://github.com/oklookat/teletrack)", version)
 
 	return &Client{
-		HTTP:       &http.Client{Timeout: 10 * time.Second},
-		mbLimiter:  rate.NewLimiter(rate.Every(time.Second), 1),
-		lbLimiter:  rate.NewLimiter(rate.Every(time.Second/3), 1),
-		config:     cfg,
-		userAgent:  ua,
-		cachedInfo: expirable.NewLRU[string, *ArtistInfo](50, nil, 10*time.Minute),
+		HTTP:      &http.Client{Timeout: 10 * time.Second},
+		mbLimiter: rate.NewLimiter(rate.Every(time.Second), 1),
+		lbLimiter: rate.NewLimiter(rate.Every(time.Second/3), 1),
+		config:    cfg,
+		userAgent: ua,
 	}, nil
 }
 
@@ -344,10 +340,6 @@ type wikiSummaryResponse struct {
 // GetArtistInfo resolves an artist name to a MusicBrainz entity and tries to find a biography summary via Wikidata.
 // If consecutive 5xx or timeout errors occur, it returns an empty biography structure without error.
 func (c *Client) GetArtistInfo(ctx context.Context, artist string, langs []string) (core.ArtistInfoer, error) {
-	if info, ok := c.cachedInfo.Get(artist); ok {
-		return info, nil
-	}
-
 	mbid, mbErr := c.mbSearchArtist(ctx, artist)
 	if mbErr != nil {
 		if errors.Is(mbErr, ErrRepeatedServerError) {
@@ -406,7 +398,6 @@ func (c *Client) GetArtistInfo(ctx context.Context, artist string, langs []strin
 	}
 
 	result := newArtistInfo(link, strings.TrimSpace(extract))
-	c.cachedInfo.Add(artist, result)
 
 	return result, nil
 }

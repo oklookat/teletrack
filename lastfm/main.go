@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hashicorp/golang-lru/v2/expirable"
-
 	"github.com/oklookat/teletrack/core"
 	"github.com/oklookat/teletrack/lastfm/lastfmclean"
 	"golang.org/x/time/rate"
@@ -34,8 +32,6 @@ type Client struct {
 	limiter *rate.Limiter
 
 	config *Config
-
-	cachedInfo *expirable.LRU[string, *ArtistInfo]
 }
 
 // NewClient creates a new Last.fm API client.
@@ -53,8 +49,7 @@ func NewClient(cfg *Config) (*Client, error) {
 		HTTP:    &http.Client{Timeout: 10 * time.Second},
 		limiter: rate.NewLimiter(rate.Every(time.Second), 1),
 
-		config:     cfg,
-		cachedInfo: expirable.NewLRU[string, *ArtistInfo](50, nil, 10*time.Minute),
+		config: cfg,
 	}, nil
 }
 
@@ -74,10 +69,6 @@ func (c *Client) do(ctx context.Context, req *http.Request) (*http.Response, err
 //
 // ISO639-2 code (see https://www.loc.gov/standards/iso639-2/php/code_list.php
 func (c *Client) GetArtistInfo(ctx context.Context, artist string, langs []string) (core.ArtistInfoer, error) {
-	if bio, ok := c.cachedInfo.Get(artist); ok {
-		return bio, nil
-	}
-
 	var gotInfo *ArtistFull
 
 	for _, lang := range langs {
@@ -95,10 +86,7 @@ func (c *Client) GetArtistInfo(ctx context.Context, artist string, langs []strin
 		return nil, errors.New("gotInfo == nil")
 	}
 
-	result := newArtistInfo(gotInfo.Artist.URL, lastfmclean.NewCleaner().Clean(gotInfo.Artist.Bio.Summary))
-	c.cachedInfo.Add(artist, result)
-
-	return result, nil
+	return newArtistInfo(gotInfo.Artist.URL, lastfmclean.NewCleaner().Clean(gotInfo.Artist.Bio.Summary)), nil
 }
 
 func (c *Client) GetPlaying(ctx context.Context) (core.TrackInfoer, error) {
