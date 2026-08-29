@@ -2,11 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
-	"path"
 	"path/filepath"
 	"syscall"
 
@@ -20,75 +21,97 @@ import (
 var version = "1.0.0-debug"
 
 func main() {
-	slog.Info("teletrack", "version", version)
+	if err := run(); err != nil {
+		slog.Error("application exited with error", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	slog.Info("starting teletrack", "version", version)
 
 	// Flags
-	configPath := flag.String("c", "", "config path")
-	statePath := flag.String("D", "./data", "state and data storage")
+	configPath := flag.String("c", "", "path to configuration file")
+	statePath := flag.String("D", "./data", "state and data storage directory")
 	flag.Parse()
 
-	dataDir := createDataDir(statePath)
+	dataDir, err := prepareDataDir(*statePath)
+	if err != nil {
+		return fmt.Errorf("prepare data directory: %w", err)
+	}
 
 	// Boot configuration
 	if err := config.Boot(configPath); err != nil {
-		chk("config.Boot", err)
+		return fmt.Errorf("boot configuration: %w", err)
 	}
 
-	ctx, cancel := signal.NotifyContext(
-		context.Background(),
-		os.Interrupt,
-		syscall.SIGTERM,
-	)
-	defer cancel()
+	// Signal-aware context for graceful shutdown
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	// Telegram bot
-	tgBot, err := telegram.NewTelegramBot(ctx, cancel, version, config.C.Telegram)
+	// Telegram bot initialization
+	tgBot, err := telegram.NewTelegramBot(ctx, stop, version, config.C.Telegram)
 	if err != nil {
-		chk("failed to start telegram bot", err)
+		return fmt.Errorf("start telegram bot: %w", err)
 	}
 
 	players, artistGetters, err := loader.Load(ctx, version)
-	chk("loader.Load", err)
+	if err != nil {
+		return fmt.Errorf("load components: %w", err)
+	}
 
 	tgTeletrack := telegram.NewTeletrackMessenger(tgBot)
 
-	cache, err := cache.NewSQLiteCache(path.Join(dataDir, "cache.db"), config.C.Cache, slog.Default())
-	chk("core.NewSQLiteArtistCache", err)
-	defer cache.Close()
-
-	teletrackd := core.New(version, players, artistGetters, cache, tgTeletrack, tgTeletrack, slog.Default())
-
-	go func() {
-		err := teletrackd.Start(ctx)
-		if err != nil {
-			slog.Error("teletrackd.Start", "error", err.Error())
+	// SQLite cache setup (filepath.Join handles cross-platform path slashes properly)
+	dbPath := filepath.Join(dataDir, "cache.db")
+	cacheDB, err := cache.NewSQLiteCache(dbPath, config.C.Cache, slog.Default())
+	if err != nil {
+		return fmt.Errorf("initialize sqlite cache: %w", err)
+	}
+	defer func() {
+		if err := cacheDB.Close(); err != nil {
+			slog.Error("failed to close cache database cleanly", "error", err)
 		}
 	}()
 
-	<-ctx.Done()
+	teletrackd, err := core.New(version, players, artistGetters, cacheDB, tgTeletrack, tgTeletrack, slog.Default())
+	if err != nil {
+		return fmt.Errorf("create core daemon: %w", err)
+	}
+
+	// Run daemon asynchronously and catch non-cancellation errors
+	errChan := make(chan error, 1)
+	go func() {
+		if err := teletrackd.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			errChan <- err
+		}
+	}()
+
+	// Wait for OS shutdown signals or a critical startup/runtime failure
+	select {
+	case <-ctx.Done():
+		slog.Info("shutdown signal received, stopping daemon...")
+	case err := <-errChan:
+		return fmt.Errorf("teletrackd runtime error: %w", err)
+	}
 
 	teletrackd.Stop()
+	slog.Info("teletrack stopped gracefully")
+	return nil
 }
 
-func chk(msg string, err error) {
-	if err == nil {
-		return
-	}
-	slog.Error(msg, "error", err)
-	os.Exit(1)
-}
-
-func createDataDir(statePath *string) string {
+func prepareDataDir(flagStatePath string) (string, error) {
 	trueStatePath := "./"
 
-	envStatePath := os.Getenv("TELETRACK_DATA")
-	if envStatePath != "" {
+	if envStatePath := os.Getenv("TELETRACK_DATA"); envStatePath != "" {
 		trueStatePath = envStatePath
-	} else if statePath != nil && *statePath != "" {
-		trueStatePath = *statePath
+	} else if flagStatePath != "" {
+		trueStatePath = flagStatePath
 	}
 
 	trueStatePath = filepath.Clean(trueStatePath)
-	chk("createDataDir", os.MkdirAll(trueStatePath, 0700))
-	return trueStatePath
+	if err := os.MkdirAll(trueStatePath, 0750); err != nil {
+		return "", err
+	}
+	return trueStatePath, nil
 }

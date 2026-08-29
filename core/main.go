@@ -213,7 +213,7 @@ func (t *Teletrack) handleResume(ctx context.Context, track TrackInfoer) error {
 	t.playback.lastProgressTime = now
 	t.mu.Unlock()
 
-	t.logger.Info("playback resumed", slog.String("track_id", track.ID()))
+	t.logger.Debug("playback resumed", slog.String("track_id", track.ID()))
 
 	if track.ID() != lastTrackID {
 		return t.onNewTrackPlaying(ctx, track)
@@ -251,7 +251,7 @@ func (t *Teletrack) handlePlaying(ctx context.Context, track TrackInfoer) error 
 	}
 
 	if !lastProgressTime.IsZero() && now.Sub(lastProgressTime) > lastProgressIdle {
-		t.logger.Warn("playback stalled (progress unchanged for too long)",
+		t.logger.Debug("playback stalled (progress unchanged for too long)",
 			slog.String("track_id", track.ID()),
 			slog.Duration("idle_duration", now.Sub(lastProgressTime)),
 		)
@@ -295,7 +295,7 @@ func (t *Teletrack) onNewTrackPlaying(ctx context.Context, track TrackInfoer) er
 
 	if cachedData, ok := t.cache.Get(ctx, cacheKey); ok {
 		if bio, err := bytesToArtistInfo(cachedData); err == nil {
-			t.logger.InfoContext(ctx, "cache hit for artist bio", slog.String("artist", artist), slog.String("cache_key", cacheKey))
+			t.logger.DebugContext(ctx, "cache hit for artist bio", slog.String("artist", artist), slog.String("cache_key", cacheKey))
 			message := newPlayingMessage(bio, track)
 
 			t.mu.Lock()
@@ -307,7 +307,7 @@ func (t *Teletrack) onNewTrackPlaying(ctx context.Context, track TrackInfoer) er
 		}
 		t.logger.WarnContext(ctx, "corrupted cache entry for artist bio", slog.String("artist", artist), slog.String("cache_key", cacheKey))
 	} else {
-		t.logger.InfoContext(ctx, "cache miss for artist bio", slog.String("artist", artist), slog.String("cache_key", cacheKey))
+		t.logger.DebugContext(ctx, "cache miss for artist bio", slog.String("artist", artist), slog.String("cache_key", cacheKey))
 	}
 
 	message := newPlayingMessage(dummyArtistInfo{}, track)
@@ -362,12 +362,12 @@ func (t *Teletrack) fetchArtistInfo(ctx context.Context, artist string) (ArtistI
 	cacheKey := artistCachePrefix + artist
 
 	if t.cache.IsFailed(ctx, cacheKey) {
-		t.logger.InfoContext(ctx, "negative cache hit: skipping artist lookup", slog.String("artist", artist), slog.String("cache_key", cacheKey))
+		t.logger.DebugContext(ctx, "negative cache hit: skipping artist lookup", slog.String("artist", artist), slog.String("cache_key", cacheKey))
 		return nil, false
 	}
 
 	val, err, _ := t.sfGroup.Do(artist, func() (any, error) {
-		t.logger.InfoContext(ctx, "fetching artist info from remote getters", slog.String("artist", artist))
+		t.logger.DebugContext(ctx, "fetching artist info from remote getters", slog.String("artist", artist))
 
 		for i, getter := range t.artistGetters {
 			artistInfo, err := getter.GetArtistInfo(ctx, artist, []string{"en", "ru"})
@@ -382,13 +382,13 @@ func (t *Teletrack) fetchArtistInfo(ctx context.Context, artist string) (ArtistI
 
 			if bytesData, err := artistInfoToBytes(artistInfo); err == nil {
 				_ = t.cache.Set(ctx, cacheKey, bytesData, 0)
-				t.logger.InfoContext(ctx, "cached new artist bio", slog.String("artist", artist), slog.String("cache_key", cacheKey))
+				t.logger.DebugContext(ctx, "cached new artist bio", slog.String("artist", artist), slog.String("cache_key", cacheKey))
 			}
 			return artistInfo, nil
 		}
 
 		_ = t.cache.SetFailed(ctx, cacheKey, 0)
-		t.logger.InfoContext(ctx, "cached negative result for artist bio", slog.String("artist", artist), slog.String("cache_key", cacheKey))
+		t.logger.DebugContext(ctx, "cached negative result for artist bio", slog.String("artist", artist), slog.String("cache_key", cacheKey))
 		return nil, fmt.Errorf("artist info not found")
 	})
 
