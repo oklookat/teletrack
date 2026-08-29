@@ -1,13 +1,14 @@
 module github.com/oklookat/teletrack
 
-go 1.26.1
+go 1.27.0
 
 require (
 	github.com/go-telegram/bot v1.20.0
-	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/zmb3/spotify/v2 v2.4.3
 	golang.org/x/oauth2 v0.36.0
+	golang.org/x/sync v0.22.0
 	golang.org/x/time v0.15.0
+	modernc.org/sqlite v1.57.0
 )
 
 require (
@@ -17,10 +18,8 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
-	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	modernc.org/libc v1.74.4 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.57.0 // indirect
 )
