@@ -1,3 +1,5 @@
+// Package cache provides a SQLite-backed key-value cache with TTL,
+// negative caching, and LRU eviction used for artist biographies.
 package cache
 
 import (
@@ -116,7 +118,7 @@ func (c *SQLiteCache) migrate() error {
 }
 
 func (c *SQLiteCache) Get(ctx context.Context, key string) ([]byte, bool) {
-	now := time.Now().Unix()
+	now := time.Now().UnixMilli()
 
 	var (
 		value     []byte
@@ -154,8 +156,8 @@ func (c *SQLiteCache) Set(ctx context.Context, key string, value []byte, ttl tim
 		ttl = c.cfg.SuccessTTL.Duration
 	}
 
-	now := time.Now().Unix()
-	expires := now + int64(ttl.Seconds())
+	now := time.Now().UnixMilli()
+	expires := now + ttl.Milliseconds()
 
 	_, err := c.db.ExecContext(ctx, `
 		INSERT INTO kv_cache (key, value, is_failed, expires_at, last_used)
@@ -180,8 +182,8 @@ func (c *SQLiteCache) SetFailed(ctx context.Context, key string, ttl time.Durati
 		ttl = c.cfg.FailureTTL.Duration
 	}
 
-	now := time.Now().Unix()
-	expires := now + int64(ttl.Seconds())
+	now := time.Now().UnixMilli()
+	expires := now + ttl.Milliseconds()
 
 	_, err := c.db.ExecContext(ctx, `
 		INSERT INTO kv_cache (key, value, is_failed, expires_at, last_used)
@@ -202,7 +204,7 @@ func (c *SQLiteCache) SetFailed(ctx context.Context, key string, ttl time.Durati
 }
 
 func (c *SQLiteCache) IsFailed(ctx context.Context, key string) bool {
-	now := time.Now().Unix()
+	now := time.Now().UnixMilli()
 	var (
 		isFailed  int
 		expiresAt int64
@@ -229,7 +231,7 @@ func (c *SQLiteCache) Delete(ctx context.Context, key string) error {
 }
 
 func (c *SQLiteCache) CleanupExpired(ctx context.Context) {
-	now := time.Now().Unix()
+	now := time.Now().UnixMilli()
 
 	if res, err := c.db.ExecContext(ctx, `DELETE FROM kv_cache WHERE expires_at < ?`, now); err == nil {
 		if rows, _ := res.RowsAffected(); rows > 0 {

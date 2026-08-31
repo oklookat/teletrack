@@ -1,14 +1,12 @@
 package lastfm
 
-import "testing"
-
-func getClient(t *testing.T) *Client {
-	cl, err := NewClient(&Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return cl
-}
+// func getClient(t *testing.T) *Client {
+// 	cl, err := NewClient(&Config{})
+// 	if err != nil {
+// 		t.Fatal(err)
+// 	}
+// 	return cl
+// }
 
 // func TestUserGetRecentTracks(t *testing.T) {
 // 	tracks, err := getClient(t).UserGetRecentTracks(new(1), nil, nil, new(true), nil)

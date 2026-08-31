@@ -1,11 +1,11 @@
+// Package telegram provides the Telegram bot, status message messenger,
+// and MarkdownV2 rendering used by teletrack.
 package telegram
 
 import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net"
-	"net/http"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -30,18 +30,30 @@ type TelegramBot struct {
 	logger   *slog.Logger
 }
 
-// NewTelegramBot initializes and starts the bot
+// NewTelegramBot initializes and starts the bot (polling loop runs in a background goroutine).
 func NewTelegramBot(ctx context.Context, cancel context.CancelFunc, cfg *Config) (*TelegramBot, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("telegram config is required")
+	}
+	if cfg.Token == "" {
+		return nil, fmt.Errorf("telegram bot token is required")
+	}
 	tg := &TelegramBot{
 		cfg:      cfg,
 		ready:    cfg.UserID > 0 && len(cfg.ServiceChatID) > 0,
 		cancel:   cancel,
 		commands: make(map[string]Commander),
-		// Scoped logger with component context
-		logger: slog.Default().With(slog.String("component", "telegram_bot")),
+		logger:   slog.Default().With(slog.String("component", "telegram_bot")),
 	}
 
-	b, err := bot.New(cfg.Token,
+	// A separate time budget for bot creation (including the getMe check and
+	// all retries), independent of whether the parent
+	// ctx has a deadline -- based on the same logic as the per-attempt timeout in
+	// telegramTransport.
+	initCtx, cancelInit := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancelInit()
+
+	b, err := newBotWithRetry(initCtx, tg.logger, defaultRetryConfig(), cfg.Token,
 		bot.WithDefaultHandler(tg.defaultHandler),
 		bot.WithHTTPClient(60*time.Second, newTelegramHTTPClient(tg.logger)),
 	)
@@ -95,7 +107,7 @@ func (tg *TelegramBot) defaultHandler(ctx context.Context, b *bot.Bot, update *m
 	}
 
 	if !tg.ready {
-		if chatID != nil {
+		if chatID != nil && update.Message != nil && update.Message.From != nil {
 			_, err := b.SendMessage(ctx, &bot.SendMessageParams{
 				ChatID: *chatID,
 				Text:   fmt.Sprintf("Telegram user ID: %d\nService chat ID: %d", update.Message.From.ID, *chatID),
@@ -104,7 +116,7 @@ func (tg *TelegramBot) defaultHandler(ctx context.Context, b *bot.Bot, update *m
 				l.ErrorContext(ctx, "failed to send initialization message", slog.Any("error", err))
 			}
 		} else {
-			l.WarnContext(ctx, "bot is not ready and update has no chat ID")
+			l.WarnContext(ctx, "bot is not ready and update has no usable chat/user")
 		}
 		return
 	}
@@ -114,6 +126,9 @@ func (tg *TelegramBot) defaultHandler(ctx context.Context, b *bot.Bot, update *m
 		return
 	}
 
+	if update.Message == nil {
+		return
+	}
 	text := strings.TrimSpace(update.Message.Text)
 	if text == "" {
 		return
@@ -131,18 +146,23 @@ func (tg *TelegramBot) defaultHandler(ctx context.Context, b *bot.Bot, update *m
 
 	if cmd, ok := tg.commands[cmdName]; ok {
 		cmdLogger.DebugContext(ctx, "executing command", slog.Int("args_count", len(args)))
-
 		if err := cmd.Handler(ctx, tg, args); err != nil {
 			cmdLogger.ErrorContext(ctx, "command execution failed", slog.Any("error", err))
 			respMsg = fmt.Sprintf("Exec error %s: %v", cmdName, err)
+		} else {
+			// Successful commands send their own replies.
+			return
 		}
-		return
 	} else if cmdName == "/help" {
 		respMsg = tg.helpMessage()
 	} else {
 		cmdLogger.WarnContext(ctx, "unknown command received")
 	}
 
+	if chatID == nil {
+		l.WarnContext(ctx, "cannot send response: missing chat ID")
+		return
+	}
 	if _, err := b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: *chatID,
 		Text:   respMsg,
@@ -204,65 +224,4 @@ func getUserIDByUpdate(update *models.Update) *int64 {
 		return nil
 	}
 	return &update.Message.From.ID
-}
-
-func telegramTransport(logger *slog.Logger) *http.Transport {
-	dialer := &net.Dialer{}
-
-	return &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			// Helper to log successful connection metadata
-			logSuccess := func(conn net.Conn, networkType string) {
-				remoteAddr := conn.RemoteAddr().String()
-				host, port, _ := net.SplitHostPort(remoteAddr)
-
-				logger.InfoContext(ctx, "telegram connection established",
-					slog.String("network", networkType),
-					slog.String("remote_ip", host),
-					slog.String("remote_port", port),
-					slog.String("target_addr", addr),
-				)
-			}
-
-			// IPv4: short try.
-			v4ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
-			defer cancel()
-
-			conn, err4 := dialer.DialContext(v4ctx, "tcp4", addr)
-			if err4 == nil {
-				logSuccess(conn, "ipv4")
-				return conn, nil
-			}
-
-			logger.WarnContext(ctx, "ipv4 connection attempt failed, falling back to ipv6",
-				slog.Any("error", err4),
-				slog.String("target_addr", addr),
-			)
-
-			// IPv6: use remaining timeout from the original context.
-			conn, err6 := dialer.DialContext(ctx, "tcp6", addr)
-			if err6 == nil {
-				logSuccess(conn, "ipv6")
-				return conn, nil
-			}
-
-			err := fmt.Errorf("telegram connection failed: ipv4: %w; ipv6: %v", err4, err6)
-			logger.ErrorContext(ctx, "all connection attempts failed",
-				slog.String("target_addr", addr),
-				slog.Any("error", err),
-			)
-
-			return nil, err
-		},
-
-		ForceAttemptHTTP2: true,
-	}
-}
-
-func newTelegramHTTPClient(logger *slog.Logger) *http.Client {
-	return &http.Client{
-		Transport: telegramTransport(logger),
-	}
 }

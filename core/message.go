@@ -9,7 +9,7 @@ const (
 	_watermark     = "powered by oklookat/teletrack"
 )
 
-func newPlayingMessage(artistInfo ArtistInfoer, trackInfo TrackInfoer) PlayingMessage {
+func newPlayingMessage(artistInfo ArtistInfo, trackInfo Track) PlayingMessage {
 	msg := PlayingMessage{
 		ArtistInfo:    artistInfo,
 		TrackInfo:     trackInfo,
@@ -27,8 +27,8 @@ func newPlayingMessage(artistInfo ArtistInfoer, trackInfo TrackInfoer) PlayingMe
 }
 
 type PlayingMessage struct {
-	ArtistInfo ArtistInfoer
-	TrackInfo  TrackInfoer
+	ArtistInfo ArtistInfo
+	TrackInfo  Track
 
 	// Current time.
 	Time time.Time

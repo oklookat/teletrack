@@ -4,8 +4,8 @@
     "title": "Teletrack Configuration",
     "type": "object",
     "required": [
-        "telegram",
-        "players"
+        "players",
+        "renderers"
     ],
     "properties": {
         "$schema": {
@@ -160,6 +160,94 @@
                 ]
             }
         },
+        "renderers": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+                "type": "string",
+                "enum": [
+                    "telegram",
+                    "html",
+                    "api"
+                ]
+            },
+            "default": [
+                "telegram"
+            ]
+        },
+        "html": {
+            "type": "object",
+            "properties": {
+                "addr": {
+                    "type": "string",
+                    "description": "Listen address. Use :443 or 0.0.0.0:8787 for public access.",
+                    "default": "127.0.0.1:8787"
+                },
+                "tlsCertFile": {
+                    "type": "string",
+                    "description": "Path to TLS certificate PEM (enable HTTPS when set with tlsKeyFile)"
+                },
+                "tlsKeyFile": {
+                    "type": "string",
+                    "description": "Path to TLS private key PEM"
+                },
+                "apiPathPrefix": {
+                    "type": "string",
+                    "description": "URL prefix for the embedded Teletrack API (playing + events). Default /api/v1/teletrack.",
+                    "default": "/api/v1/teletrack"
+                }
+            },
+            "additionalProperties": false
+        },
+        "api": {
+            "type": "object",
+            "description": "Standalone HTTP API for third-party sites and widgets (no built-in UI).",
+            "properties": {
+                "addr": {
+                    "type": "string",
+                    "description": "Listen address. Default 127.0.0.1:8790.",
+                    "default": "127.0.0.1:8790"
+                },
+                "pathPrefix": {
+                    "type": "string",
+                    "description": "URL prefix for API routes. Default /api/v1/teletrack.",
+                    "default": "/api/v1/teletrack"
+                },
+                "tlsCertFile": {
+                    "type": "string",
+                    "description": "Path to TLS certificate PEM"
+                },
+                "tlsKeyFile": {
+                    "type": "string",
+                    "description": "Path to TLS private key PEM"
+                },
+                "cors": {
+                    "type": "object",
+                    "properties": {
+                        "allowedOrigins": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Allowed Origin values. Use [\"*\"] to allow any origin."
+                        },
+                        "allowedMethods": {
+                            "type": "array",
+                            "items": { "type": "string" }
+                        },
+                        "allowedHeaders": {
+                            "type": "array",
+                            "items": { "type": "string" }
+                        },
+                        "allowCredentials": {
+                            "type": "boolean",
+                            "default": false
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "additionalProperties": false
+        },
         "cache": {
             "type": "object",
             "properties": {
@@ -169,15 +257,15 @@
                 },
                 "successTTL": {
                     "type": "string",
-                    "pattern": "^^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
+                    "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|\u00b5s|ms|s|m|h))+$"
                 },
                 "failureTTL": {
                     "type": "string",
-                    "pattern": "^^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
+                    "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|\u00b5s|ms|s|m|h))+$"
                 },
                 "cleanupInterval": {
                     "type": "string",
-                    "pattern": "^^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
+                    "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|\u00b5s|ms|s|m|h))+$"
                 }
             },
             "additionalProperties": false
@@ -262,6 +350,71 @@
                 "required": [
                     "listenBrainz"
                 ]
+            }
+        },
+        {
+            "comment": "If 'telegram' is listed in renderers, the top-level telegram object is required.",
+            "if": {
+                "properties": {
+                    "renderers": {
+                        "contains": {
+                            "const": "telegram"
+                        }
+                    }
+                }
+            },
+            "then": {
+                "required": [
+                    "telegram"
+                ]
+            }
+        },
+        {
+            "comment": "If 'html' is listed in renderers, the top-level html object is optional but recommended.",
+            "if": {
+                "properties": {
+                    "renderers": {
+                        "contains": {
+                            "const": "html"
+                        }
+                    }
+                }
+            },
+            "then": {
+                "properties": {
+                    "html": {
+                        "type": "object",
+                        "properties": {
+                            "addr": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "comment": "If 'api' is listed in renderers, the top-level api object is optional but recommended.",
+            "if": {
+                "properties": {
+                    "renderers": {
+                        "contains": {
+                            "const": "api"
+                        }
+                    }
+                }
+            },
+            "then": {
+                "properties": {
+                    "api": {
+                        "type": "object",
+                        "properties": {
+                            "addr": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
             }
         }
     ],

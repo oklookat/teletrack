@@ -11,6 +11,7 @@ import (
 
 	"github.com/zmb3/spotify/v2"
 	spotifyauth "github.com/zmb3/spotify/v2/auth"
+	"golang.org/x/oauth2"
 )
 
 var (
@@ -157,30 +158,19 @@ func (a authorizer) handleOAuthCallback(
 		spotify.WithRetry(true),
 	)
 
-	// Сначала отвечаем браузеру
-	w.Header().Set(
-		"Content-Type",
-		"text/html; charset=utf-8",
-	)
-
+	// Respond to the browser before handing the client to the waiter.
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-
-	fmt.Fprint(w, `
-<!DOCTYPE html>
+	fmt.Fprint(w, `<!DOCTYPE html>
 <html>
-<head>
-<title>Spotify Authorization</title>
-</head>
+<head><title>Spotify Authorization</title></head>
 <body>
 <h2>Authorization completed</h2>
 <p>You can close this window.</p>
 </body>
-</html>
-`)
+</html>`)
 
 	slog.Info("Spotify OAuth callback received")
-
-	// Передаем клиент дальше
 	clientCh <- client
 }
 
@@ -195,21 +185,14 @@ func (a authorizer) getAuthenticator(
 		spotifyauth.WithClientSecret(clientSecret),
 		spotifyauth.WithRedirectURL(redirectURI),
 
+		// Only the currently-playing scope is required for teletrack.
 		spotifyauth.WithScopes(
 			spotifyauth.ScopeUserReadCurrentlyPlaying,
-			spotifyauth.ScopeUserReadPrivate,
-			spotifyauth.ScopeUserLibraryRead,
-			spotifyauth.ScopeUserLibraryModify,
-			spotifyauth.ScopeUserFollowRead,
-			spotifyauth.ScopeUserFollowModify,
-			spotifyauth.ScopePlaylistReadPrivate,
-			spotifyauth.ScopePlaylistModifyPrivate,
-			spotifyauth.ScopePlaylistModifyPublic,
 		),
 	)
 }
 
-// временный OAuth HTTP сервер
+// serve runs a short-lived HTTP server that handles the OAuth redirect.
 func (a authorizer) serve(
 	ctx context.Context,
 	handler http.HandlerFunc,
@@ -290,21 +273,30 @@ func (a authorizer) getClient(
 	clientID,
 	clientSecret string,
 	token *Token,
+	saveToken func(*Token) error,
 ) *spotify.Client {
+	// Build oauth2.Config ourselves so we can wrap TokenSource and persist
+	// refreshed access tokens. (spotifyauth.Authenticator does not expose
+	// TokenSource on its public API.)
+	oauthCfg := &oauth2.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		RedirectURL:  redirectURI,
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  "https://accounts.spotify.com/authorize",
+			TokenURL: "https://accounts.spotify.com/api/token",
+		},
+		Scopes: []string{spotifyauth.ScopeUserReadCurrentlyPlaying},
+	}
 
-	auth := a.getAuthenticator(
-		redirectURI,
-		clientID,
-		clientSecret,
-	)
+	src := &persistingTokenSource{
+		base: oauthCfg.TokenSource(context.Background(), token.oauth2()),
+		save: saveToken,
+	}
+	if token != nil {
+		src.lastAccess = token.AccessToken
+	}
 
-	httpClient := auth.Client(
-		context.Background(),
-		token.oauth2(),
-	)
-
-	return spotify.New(
-		httpClient,
-		spotify.WithRetry(true),
-	)
+	httpClient := oauth2.NewClient(context.Background(), src)
+	return spotify.New(httpClient, spotify.WithRetry(true))
 }

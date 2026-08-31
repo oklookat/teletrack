@@ -1,4 +1,4 @@
-// Written by: Grok (grok.com)
+// Package ago formats relative timestamps ("3 min ago", "just now").
 package ago
 
 import (
@@ -7,7 +7,7 @@ import (
 )
 
 // Format returns a human-readable relative time string for t
-// relative to the current moment (time.Now()).
+// relative to time.Now().
 func Format(t time.Time) string {
 	return format(t, time.Now())
 }
@@ -24,7 +24,7 @@ func format(t, now time.Time) string {
 		return "just now"
 	case d < time.Minute:
 		n := int(d.Seconds())
-		return plural(n, "sec", "sec") // специально коротко
+		return plural(n, "sec", "sec")
 	case d < time.Hour:
 		n := int(d.Minutes())
 		return plural(n, "min", "min")

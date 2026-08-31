@@ -12,7 +12,7 @@ func (d ArtistInfoDTO) Link() string       { return d.LinkURL }
 func (d ArtistInfoDTO) Bio() string        { return d.BioText }
 func (d ArtistInfoDTO) BioService() string { return d.ServiceName }
 
-func artistInfoToBytes(info ArtistInfoer) ([]byte, error) {
+func artistInfoToBytes(info ArtistInfo) ([]byte, error) {
 	if info == nil {
 		return nil, nil
 	}
@@ -24,7 +24,7 @@ func artistInfoToBytes(info ArtistInfoer) ([]byte, error) {
 	return json.Marshal(dto)
 }
 
-func bytesToArtistInfo(data []byte) (ArtistInfoer, error) {
+func bytesToArtistInfo(data []byte) (ArtistInfo, error) {
 	var dto ArtistInfoDTO
 	if err := json.Unmarshal(data, &dto); err != nil {
 		return nil, err

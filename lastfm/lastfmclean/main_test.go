@@ -78,6 +78,16 @@ func TestCleaner_Clean(t *testing.T) {
 			Expected: "Midi Memory is a darkwave project based in Orlando, FL by Matt Messore (Cathedral Bells). Pulling from cold wave influences, layering rich analog tones with driving drum loops.",
 			Length:   1000,
 		},
+		{
+			Input:    "There are at least three artists with the name Doss. 1. DOSS >>= is a computer simulation that became sentient at 1997-04-04T20:30:15 >> early attempts to communicate with DOSS or her offspring have proved futile mostly Doss makes dance music like a daydream of nights past, equal parts euphoria and ennui. This spring, a full seven years after releasing her cult-favorite self-titled debut, she will finally release its follow up for LuckyMe.",
+			Expected: "DOSS >>= is a computer simulation that became sentient at 1997-04-04T20:30:15 >> early attempts to communicate with DOSS or her offspring have proved futile mostly Doss makes dance music like a daydream of nights past, equal parts euphoria and ennui. This spring, a full seven years after releasing her cult-favorite self-titled debut, she will finally release its follow up for LuckyMe.",
+			Length:   500,
+		},
+		{
+			Input:    "There are, at least, four artists known as Soulstice: 1 Ashley J. Llorens (born in 1979 in Chicago, Illinois), known professionally as Soulstice, is an American HipHop Emcee. He started seriously pursuing music while earning his B. S. and M. S. at the University of Illinois Urbana-Champaign. In 2003, Soulstice founded the independent label, Wandering Soul Records, concurrently with the release of his first album, North by Northwest.",
+			Expected: "Ashley J. Llorens (born in 1979 in Chicago, Illinois), known professionally as Soulstice, is an American HipHop Emcee. He started seriously pursuing music while earning his B. S. and M. S. at the University of Illinois Urbana-Champaign. In 2003, Soulstice founded the independent label, Wandering Soul Records, concurrently with the release of his first album, North by Northwest.",
+			Length:   500,
+		},
 	}
 
 	cleaner := NewCleaner(500)

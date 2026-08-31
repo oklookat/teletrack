@@ -1,3 +1,5 @@
+// Package loader constructs Player and ArtistGetter implementations from
+// the process configuration.
 package loader
 
 import (
@@ -13,25 +15,37 @@ import (
 	"github.com/oklookat/teletrack/spotify"
 )
 
-var clientFactories = map[config.Service]func(context.Context, *config.Config) (any, error){
-	config.ServiceSpotify: func(ctx context.Context, c *config.Config) (any, error) {
-		return spotify.New(ctx, c.Spotify, spotifySaveToken)
-	},
-	config.ServiceLastFm: func(ctx context.Context, c *config.Config) (any, error) {
-		return lastfm.NewClient(c.LastFm)
-	},
-	config.ServiceListenBrainz: func(ctx context.Context, c *config.Config) (any, error) {
-		return listenbrainz.NewClient(c.ListenBrainz)
-	},
-}
+// Load constructs players and artist getters from cfg.
+// Spotify OAuth tokens are persisted via cfg.Save when authorization completes.
+func Load(ctx context.Context, cfg *config.Config) ([]core.Player, []core.ArtistGetter, error) {
+	if cfg == nil {
+		return nil, nil, fmt.Errorf("config is required")
+	}
 
-func Load(ctx context.Context) ([]core.Player, []core.ArtistGetter, error) {
-	players, err := loadServices[core.Player](ctx, config.C.Players, "player")
+	saveToken := func(t *spotify.Token) error {
+		cfg.Spotify.Authorize = false
+		cfg.Spotify.Token = t
+		return cfg.Save()
+	}
+
+	factories := map[config.Service]func(context.Context, *config.Config) (any, error){
+		config.ServiceSpotify: func(ctx context.Context, c *config.Config) (any, error) {
+			return spotify.New(ctx, c.Spotify, saveToken)
+		},
+		config.ServiceLastFm: func(_ context.Context, c *config.Config) (any, error) {
+			return lastfm.NewClient(c.LastFm)
+		},
+		config.ServiceListenBrainz: func(_ context.Context, c *config.Config) (any, error) {
+			return listenbrainz.NewClient(c.ListenBrainz)
+		},
+	}
+
+	players, err := loadServices[core.Player](ctx, cfg, cfg.Players, factories, "player")
 	if err != nil {
 		return nil, nil, err
 	}
 
-	artistGetters, err := loadServices[core.ArtistGetter](ctx, config.C.Bios, "bio")
+	artistGetters, err := loadServices[core.ArtistGetter](ctx, cfg, cfg.Bios, factories, "bio")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -46,18 +60,24 @@ func Load(ctx context.Context) ([]core.Player, []core.ArtistGetter, error) {
 	return players, artistGetters, nil
 }
 
-func loadServices[T any](ctx context.Context, services []config.Service, role string) ([]T, error) {
+func loadServices[T any](
+	ctx context.Context,
+	cfg *config.Config,
+	services []config.Service,
+	factories map[config.Service]func(context.Context, *config.Config) (any, error),
+	role string,
+) ([]T, error) {
 	enabled := shared.Unique(services)
 	result := make([]T, 0, len(enabled))
 
 	for _, name := range enabled {
-		factory, ok := clientFactories[name]
+		factory, ok := factories[name]
 		if !ok {
 			slog.Warn("service not found in clientFactories", "service", name)
 			continue
 		}
 
-		client, err := factory(ctx, config.C)
+		client, err := factory(ctx, cfg)
 		if err != nil {
 			return nil, fmt.Errorf("%s factory failed: %w", name, err)
 		}
@@ -71,10 +91,4 @@ func loadServices[T any](ctx context.Context, services []config.Service, role st
 	}
 
 	return result, nil
-}
-
-func spotifySaveToken(t *spotify.Token) error {
-	config.C.Spotify.Authorize = false
-	config.C.Spotify.Token = t
-	return config.C.Save()
 }

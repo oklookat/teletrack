@@ -54,17 +54,30 @@ var (
 		`\"`, `"`,
 		`\r`, "",
 	)
+	// numberWord matches digits as well as English spelled-out counts and
+	// vague quantifiers ("three", "several", "a few", etc).
+	numberWord = `(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|several|numerous|multiple|various|many|a\s+few|few)`
+
+	// ruNumberWord is the Cyrillic equivalent of numberWord, for Russian-language bios.
+	ruNumberWord = `(?:\d+|один|одна|одно|два|две|три|четыре|пять|шесть|семь|восемь|девять|десять|несколько|немало|множество|много)`
+
 	multipleArtistPhrasePatterns = []*regexp.Regexp{
 		regexp.MustCompile(`(?i)There are \d+ artists with this name`),
 		regexp.MustCompile(`(?i)There are multiple artists under the name of`),
 		regexp.MustCompile(`(?i)Multiple artists share this name`),
 		regexp.MustCompile(`(?i)Artists sharing this name`),
-		regexp.MustCompile(`(?i)There are at least \d+ other known artists? called`),
-		regexp.MustCompile(`(?i)There are at least \d+ other artists? (?:with this name|called)`),
-		regexp.MustCompile(`(?i)There (?:are|is) (?:at least )?\d+ (?:other )?(?:known )?artists? (?:with this name|called|named)`),
+		regexp.MustCompile(`(?i)There are at least ` + numberWord + ` other known artists? called`),
+		regexp.MustCompile(`(?i)There are at least ` + numberWord + ` other artists? (?:with (?:this|the) name|called)`),
+		regexp.MustCompile(`(?i)There (?:are|is)(?:,?\s*at\s+least,?)?\s+` + numberWord + ` (?:other )?(?:known )?artists? (?:with (?:this|the) name|called|named|known as)`),
 		regexp.MustCompile(`(?i)There is more than one artist that goes by the name`),
 		regexp.MustCompile(`(?i)There (?:is|are) more than one artist`),
 		regexp.MustCompile(`(?i)There are multiple artists that have performed under the name`),
+
+		// Russian-language equivalents.
+		regexp.MustCompile(`(?i)Под (?:этим|таким) (?:именем|названием) (?:выступают|записываются|скрываются|известны)`),
+		regexp.MustCompile(`(?i)Несколько (?:исполнителей|музыкантов|артистов|групп) (?:носят|выступают под|используют|скрываются под) (?:это|этим|таким) (?:имя|именем|названием)`),
+		regexp.MustCompile(`(?i)(?:Есть|Существует|Существуют|Найдено|Найдены) ` + ruNumberWord + ` (?:других? )?(?:известных? )?(?:исполнител[а-я]*|музыкант[а-я]*|артист[а-я]*|групп[а-я]*|певц[а-я]*) (?:с (?:этим|таким) именем|под (?:этим|таким) (?:именем|названием)|по имени|по названию)`),
+		regexp.MustCompile(`(?i)Как минимум ` + ruNumberWord + ` (?:других? )?(?:известных? )?(?:исполнител[а-я]*|музыкант[а-я]*|артист[а-я]*|групп[а-я]*) (?:с (?:этим|таким) именем|называ(?:ются|ется)|носят это имя)`),
 	}
 	listItemRegex  = regexp.MustCompile(`(?:^|\s)(?:[1-9]|[1-9][0-9])[\)\.]\s+`)
 	headerPatterns = []*regexp.Regexp{
@@ -72,11 +85,18 @@ var (
 		regexp.MustCompile(`(?i)^There are multiple artists under the name of [^:\n]+[:\s]*`),
 		regexp.MustCompile(`(?i)^Multiple artists share this name[:\s]*`),
 		regexp.MustCompile(`(?i)^Artists sharing this name[:\s]*`),
-		regexp.MustCompile(`(?i)^There are at least \d+ other known artists? called [^:\n]*[:\s\-]*`),
-		regexp.MustCompile(`(?i)^There (?:are|is) (?:at least )?\d+ (?:other )?(?:known )?artists? (?:with this name|called|named)[^:\n]*[:\s\-]*`),
+		regexp.MustCompile(`(?i)^There are at least ` + numberWord + ` other known artists? called [^:\n]*[:\s\-]*`),
+		regexp.MustCompile(`(?i)^There (?:are|is)(?:,?\s*at\s+least,?)?\s+` + numberWord + ` (?:other )?(?:known )?artists? (?:with (?:this|the) name|called|named|known as)[^:\n]*[:\s\-]*`),
 		regexp.MustCompile(`(?i)^There is more than one artist that goes by the name [^:\n]*[:\s]*`),
 		regexp.MustCompile(`(?i)^There (?:is|are) more than one artist[^:\n]*[:\s]*`),
 		regexp.MustCompile(`(?i)^There are multiple artists that have performed under the name [^:\n]+[:\s]*`),
+
+		// Russian-language equivalents.
+		regexp.MustCompile(`(?i)^Под (?:этим|таким) (?:именем|названием) (?:выступают|записываются|скрываются|известны)[^:\n]*[:\s\-]*`),
+		regexp.MustCompile(`(?i)^Несколько (?:исполнителей|музыкантов|артистов|групп) (?:носят|выступают под|используют|скрываются под) (?:это|этим|таким) (?:имя|именем|названием)[^:\n]*[:\s\-]*`),
+		regexp.MustCompile(`(?i)^(?:Есть|Существует|Существуют|Найдено|Найдены) ` + ruNumberWord + ` (?:других? )?(?:известных? )?(?:исполнител[а-я]*|музыкант[а-я]*|артист[а-я]*|групп[а-я]*|певц[а-я]*) (?:с (?:этим|таким) именем|под (?:этим|таким) (?:именем|названием)|по имени|по названию)[^:\n]*[:\s\-]*`),
+		regexp.MustCompile(`(?i)^Как минимум ` + ruNumberWord + ` (?:других? )?(?:известных? )?(?:исполнител[а-я]*|музыкант[а-я]*|артист[а-я]*|групп[а-я]*) (?:с (?:этим|таким) именем|называ(?:ются|ется)|носят это имя)[^:\n]*[:\s\-]*`),
+
 		regexp.MustCompile(`^\s*\d+[\)\.]\s*`),
 	}
 	bareNumberMarkerRegex = regexp.MustCompile(`^[1-9]\s+([A-Z])`)

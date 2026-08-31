@@ -26,7 +26,7 @@ func (g *ArtistGetter) GetArtistInfo(
 	ctx context.Context,
 	artist string,
 	languages []string,
-) (core.ArtistInfoer, error) {
+) (core.ArtistInfo, error) {
 	return g.client.GetArtistInfo(ctx, artist, languages)
 }
 

@@ -23,30 +23,38 @@ func (t *TrackInfo) ID() string {
 	return t.id
 }
 
-func (t TrackInfo) Playing() bool {
+func (t *TrackInfo) Playing() bool {
 	return t.playing
 }
-func (t TrackInfo) Artist() string {
+
+func (t *TrackInfo) Artist() string {
 	return t.artist
 }
-func (t TrackInfo) Track() string {
+
+func (t *TrackInfo) Track() string {
 	return t.track
 }
-func (t TrackInfo) TrackLink() string {
+
+func (t *TrackInfo) TrackLink() string {
 	return "https://open.spotify.com/track/" + t.spotifyId
 }
-func (t TrackInfo) TrackLinkService() string {
+
+func (t *TrackInfo) TrackLinkService() string {
 	return "Spotify"
 }
-func (t TrackInfo) CoverURL() string {
+
+func (t *TrackInfo) CoverURL() string {
 	return t.coverURL
 }
-func (t TrackInfo) ProgressMs() *int {
+
+func (t *TrackInfo) ProgressMs() *int {
 	return t.progressMs
 }
-func (t TrackInfo) DurationMs() *int {
+
+func (t *TrackInfo) DurationMs() *int {
 	return t.durationMs
 }
-func (t TrackInfo) Time() *time.Time {
+
+func (t *TrackInfo) Time() *time.Time {
 	return t.time
 }

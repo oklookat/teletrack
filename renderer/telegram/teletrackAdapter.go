@@ -11,6 +11,7 @@ import (
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 	"github.com/oklookat/teletrack/core"
+	"github.com/oklookat/teletrack/shared"
 )
 
 type Messenger struct {
@@ -57,13 +58,12 @@ func (t *Messenger) UpdatePlaying(ctx context.Context, msg *core.PlayingMessage)
 		},
 	}
 
-	// Link preview
 	if msg.TrackInfo != nil && msg.TrackInfo.CoverURL() != "" {
 		coverURL := msg.TrackInfo.CoverURL()
 		params.LinkPreviewOptions = &models.LinkPreviewOptions{
 			IsDisabled:       bot.False(),
 			PreferLargeMedia: bot.True(),
-			URL:              new(coverURL),
+			URL:              shared.Ptr(coverURL),
 		}
 	}
 
@@ -90,13 +90,12 @@ func (t *Messenger) UpdateIdle(ctx context.Context, msg *core.PlayingMessage) er
 		},
 	}
 
-	// Link preview
 	if msg != nil && msg.TrackInfo != nil && msg.TrackInfo.CoverURL() != "" {
 		coverURL := msg.TrackInfo.CoverURL()
 		params.LinkPreviewOptions = &models.LinkPreviewOptions{
 			IsDisabled:       bot.False(),
 			PreferLargeMedia: bot.True(),
-			URL:              new(coverURL),
+			URL:              shared.Ptr(coverURL),
 		}
 	}
 

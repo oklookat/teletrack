@@ -15,8 +15,8 @@ import (
 	"github.com/oklookat/teletrack/config"
 	"github.com/oklookat/teletrack/core"
 	"github.com/oklookat/teletrack/loader"
+	"github.com/oklookat/teletrack/renderer/telegram"
 	"github.com/oklookat/teletrack/shared"
-	"github.com/oklookat/teletrack/telegram"
 )
 
 func main() {
@@ -39,31 +39,34 @@ func run() error {
 		return fmt.Errorf("prepare data directory: %w", err)
 	}
 
-	// Boot configuration
-	if err := config.Boot(configPath); err != nil {
+	cfg, err := config.Boot(configPath)
+	if err != nil {
 		return fmt.Errorf("boot configuration: %w", err)
 	}
 
-	// Signal-aware context for graceful shutdown
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Telegram bot initialization
-	tgBot, err := telegram.NewTelegramBot(ctx, stop, config.C.Telegram)
-	if err != nil {
-		return fmt.Errorf("start telegram bot: %w", err)
-	}
-
-	players, artistGetters, err := loader.Load(ctx)
+	players, artistGetters, err := loader.Load(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("load components: %w", err)
 	}
 
-	tgTeletrack := telegram.NewMessenger(tgBot)
+	var tgBot *telegram.TelegramBot
+	if containsService(cfg.Renderers, config.ServiceTelegram) {
+		tgBot, err = telegram.NewTelegramBot(ctx, stop, cfg.Telegram)
+		if err != nil {
+			return fmt.Errorf("start telegram bot: %w", err)
+		}
+	}
 
-	// SQLite cache setup
+	renderers, err := loader.LoadRenderers(ctx, cfg, loader.RendererDeps{TelegramBot: tgBot})
+	if err != nil {
+		return fmt.Errorf("load renderers: %w", err)
+	}
+
 	dbPath := filepath.Join(dataDir, "cache.db")
-	cacheDB, err := cache.NewSQLiteCache(dbPath, config.C.Cache, slog.Default())
+	cacheDB, err := cache.NewSQLiteCache(dbPath, cfg.Cache, slog.Default())
 	if err != nil {
 		return fmt.Errorf("initialize sqlite cache: %w", err)
 	}
@@ -73,28 +76,29 @@ func run() error {
 		}
 	}()
 
-	tCore, err := core.New(players, artistGetters, cacheDB, tgTeletrack, slog.Default())
+	tCore, err := core.New(players, artistGetters, cacheDB, renderers, slog.Default())
 	if err != nil {
 		return fmt.Errorf("create core: %w", err)
 	}
 
-	errChan := make(chan error, 1)
+	errCh := make(chan error, 1)
 
-	// Run daemon asynchronously and catch non-cancellation errors
 	go func() {
 		if err := tCore.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			errChan <- err
+			errCh <- err
 		}
 	}()
 
-	// Wait for OS shutdown signals or a critical startup/runtime failure
 	select {
 	case <-ctx.Done():
 		slog.Info("shutdown signal received, stopping daemon...")
-	case err := <-errChan:
+	case err := <-errCh:
 		return fmt.Errorf("core runtime error: %w", err)
 	}
 
+	// Stop only the core loop and background artist fetches.
+	// The SQLite cache is closed by the defer above — do not close it again
+	// inside core.Stop (see core.Stop docs).
 	tCore.Stop()
 	slog.Info("core stopped gracefully")
 	return nil
@@ -114,4 +118,13 @@ func prepareDataDir(flagStatePath string) (string, error) {
 		return "", err
 	}
 	return trueStatePath, nil
+}
+
+func containsService(list []config.Service, want config.Service) bool {
+	for _, s := range list {
+		if s == want {
+			return true
+		}
+	}
+	return false
 }

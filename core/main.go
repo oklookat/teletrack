@@ -1,3 +1,6 @@
+// Package core implements the main teletrack playback loop: poll players,
+// detect track changes / idle state, fetch artist bios, and push updates
+// to one or more Renderers (Telegram, HTML UI, etc.) in parallel.
 package core
 
 import (
@@ -38,7 +41,7 @@ type Teletrack struct {
 	cache         cache.Cache
 	sfGroup       singleflight.Group
 
-	messenger Messenger
+	renderers []Renderer
 	logger    *slog.Logger
 
 	mu       sync.RWMutex
@@ -57,7 +60,7 @@ func New(
 	players []Player,
 	artistGetters []ArtistGetter,
 	c cache.Cache,
-	messenger Messenger,
+	renderers []Renderer,
 	logger *slog.Logger,
 ) (*Teletrack, error) {
 	if c == nil {
@@ -68,11 +71,19 @@ func New(
 		logger = slog.Default()
 	}
 
+	// Drop nils so callers can pass optional renderers loosely.
+	clean := make([]Renderer, 0, len(renderers))
+	for _, r := range renderers {
+		if r != nil {
+			clean = append(clean, r)
+		}
+	}
+
 	return &Teletrack{
 		players:        players,
 		artistGetters:  artistGetters,
 		cache:          c,
-		messenger:      messenger,
+		renderers:      clean,
 		logger:         logger,
 		currentMessage: newPlayingMessage(nil, nil),
 		shutdown:       make(chan struct{}),
@@ -112,15 +123,13 @@ func (t *Teletrack) Start(parentCtx context.Context) error {
 	}
 }
 
+// Stop signals the main loop to exit, waits for in-flight artist fetches,
+// and returns. The caller retains ownership of the Cache and must close it.
 func (t *Teletrack) Stop() {
 	t.stopOnce.Do(func() {
 		close(t.shutdown)
 		<-t.done
 		t.wg.Wait()
-
-		if t.cache != nil {
-			_ = t.cache.Close()
-		}
 	})
 }
 
@@ -143,7 +152,7 @@ func (t *Teletrack) handleTick(ctx context.Context) error {
 	return t.handlePlaying(ctx, track)
 }
 
-func (t *Teletrack) getPlaying(ctx context.Context) (TrackInfoer, error) {
+func (t *Teletrack) getPlaying(ctx context.Context) (Track, error) {
 	for i, player := range t.players {
 		track, err := player.GetPlaying(ctx)
 		if err != nil {
@@ -171,7 +180,7 @@ func (t *Teletrack) getPlaying(ctx context.Context) (TrackInfoer, error) {
 	return nil, nil
 }
 
-func (t *Teletrack) updatePlaybackState(track TrackInfoer) (idle bool, wasIdle bool) {
+func (t *Teletrack) updatePlaybackState(track Track) (idle bool, wasIdle bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -199,7 +208,7 @@ func (t *Teletrack) updatePlaybackState(track TrackInfoer) (idle bool, wasIdle b
 	return false, wasIdle
 }
 
-func (t *Teletrack) handleResume(ctx context.Context, track TrackInfoer) error {
+func (t *Teletrack) handleResume(ctx context.Context, track Track) error {
 	now := time.Now()
 
 	t.mu.Lock()
@@ -218,7 +227,7 @@ func (t *Teletrack) handleResume(ctx context.Context, track TrackInfoer) error {
 	return t.onOldTrackStillPlaying(ctx, track)
 }
 
-func (t *Teletrack) handlePlaying(ctx context.Context, track TrackInfoer) error {
+func (t *Teletrack) handlePlaying(ctx context.Context, track Track) error {
 	now := time.Now()
 
 	t.mu.RLock()
@@ -257,7 +266,7 @@ func (t *Teletrack) handlePlaying(ctx context.Context, track TrackInfoer) error 
 	return t.onOldTrackStillPlaying(ctx, track)
 }
 
-func (t *Teletrack) handleTrackChange(ctx context.Context, track TrackInfoer, now time.Time) error {
+func (t *Teletrack) handleTrackChange(ctx context.Context, track Track, now time.Time) error {
 	t.mu.Lock()
 	t.playback.lastTrackID = track.ID()
 	t.playback.lastProgressMs = progressMs(track)
@@ -272,20 +281,20 @@ func (t *Teletrack) onNothingPlaying(ctx context.Context) error {
 	message := t.currentMessage
 	t.mu.RUnlock()
 
-	return t.messenger.UpdateIdle(ctx, &message)
+	return t.broadcastIdle(ctx, &message)
 }
 
-func (t *Teletrack) onOldTrackStillPlaying(ctx context.Context, track TrackInfoer) error {
+func (t *Teletrack) onOldTrackStillPlaying(ctx context.Context, track Track) error {
 	t.mu.Lock()
 	t.currentMessage.TrackInfo = track
 	t.currentMessage.Time = trackTime(track)
 	message := t.currentMessage
 	t.mu.Unlock()
 
-	return t.messenger.UpdatePlaying(ctx, &message)
+	return t.broadcastPlaying(ctx, &message)
 }
 
-func (t *Teletrack) onNewTrackPlaying(ctx context.Context, track TrackInfoer) error {
+func (t *Teletrack) onNewTrackPlaying(ctx context.Context, track Track) error {
 	artist := track.Artist()
 	cacheKey := artistCachePrefix + artist
 
@@ -299,7 +308,7 @@ func (t *Teletrack) onNewTrackPlaying(ctx context.Context, track TrackInfoer) er
 			t.mu.Unlock()
 
 			t.artistFetchID.Add(1)
-			return t.messenger.UpdatePlaying(ctx, &message)
+			return t.broadcastPlaying(ctx, &message)
 		}
 		t.logger.WarnContext(ctx, "corrupted cache entry for artist bio", slog.String("artist", artist), slog.String("cache_key", cacheKey))
 	} else {
@@ -314,7 +323,7 @@ func (t *Teletrack) onNewTrackPlaying(ctx context.Context, track TrackInfoer) er
 	trackID := track.ID()
 	t.mu.Unlock()
 
-	if err := t.messenger.UpdatePlaying(ctx, &message); err != nil {
+	if err := t.broadcastPlaying(ctx, &message); err != nil {
 		return err
 	}
 
@@ -349,12 +358,12 @@ func (t *Teletrack) fetchArtistInfoAsync(parentCtx context.Context, artist, trac
 	updatedMessage := t.currentMessage
 	t.mu.Unlock()
 
-	if err := t.messenger.UpdatePlaying(parentCtx, &updatedMessage); err != nil {
+	if err := t.broadcastPlaying(parentCtx, &updatedMessage); err != nil {
 		t.reportError(parentCtx, "failed to update playing message with async artist bio", err)
 	}
 }
 
-func (t *Teletrack) fetchArtistInfo(ctx context.Context, artist string) (ArtistInfoer, bool) {
+func (t *Teletrack) fetchArtistInfo(ctx context.Context, artist string) (ArtistInfo, bool) {
 	cacheKey := artistCachePrefix + artist
 
 	if t.cache.IsFailed(ctx, cacheKey) {
@@ -392,8 +401,62 @@ func (t *Teletrack) fetchArtistInfo(ctx context.Context, artist string) (ArtistI
 		return nil, false
 	}
 
-	info, ok := val.(ArtistInfoer)
+	info, ok := val.(ArtistInfo)
 	return info, ok
+}
+
+
+// broadcastPlaying notifies every Renderer in parallel. Individual failures are
+// logged; the returned error is the first non-nil error (if any). A slow
+// renderer does not block the others from starting.
+func (t *Teletrack) broadcastPlaying(ctx context.Context, msg *PlayingMessage) error {
+	return t.broadcast(ctx, "UpdatePlaying", func(r Renderer) error {
+		return r.UpdatePlaying(ctx, msg)
+	})
+}
+
+func (t *Teletrack) broadcastIdle(ctx context.Context, msg *PlayingMessage) error {
+	return t.broadcast(ctx, "UpdateIdle", func(r Renderer) error {
+		return r.UpdateIdle(ctx, msg)
+	})
+}
+
+func (t *Teletrack) broadcast(ctx context.Context, op string, fn func(Renderer) error) error {
+	n := len(t.renderers)
+	if n == 0 {
+		return nil
+	}
+	if n == 1 {
+		if err := fn(t.renderers[0]); err != nil {
+			t.reportError(ctx, "renderer "+op+" failed", err, slog.Int("renderer_index", 0))
+			return err
+		}
+		return nil
+	}
+
+	errCh := make(chan error, n)
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i, r := range t.renderers {
+		i, r := i, r
+		go func() {
+			defer wg.Done()
+			if err := fn(r); err != nil {
+				t.reportError(ctx, "renderer "+op+" failed", err, slog.Int("renderer_index", i))
+				errCh <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+
+	var first error
+	for err := range errCh {
+		if first == nil {
+			first = err
+		}
+	}
+	return first
 }
 
 func (t *Teletrack) reportError(ctx context.Context, msg string, err error, attrs ...slog.Attr) {
@@ -406,18 +469,18 @@ func (t *Teletrack) reportError(ctx context.Context, msg string, err error, attr
 	t.logger.ErrorContext(ctx, msg, args...)
 }
 
-func supportsProgress(track TrackInfoer) bool {
+func supportsProgress(track Track) bool {
 	return shared.TrackProgressSupported(track.ProgressMs(), track.DurationMs())
 }
 
-func progressMs(track TrackInfoer) int {
+func progressMs(track Track) int {
 	if !supportsProgress(track) {
 		return 0
 	}
 	return *track.ProgressMs()
 }
 
-func trackTime(track TrackInfoer) time.Time {
+func trackTime(track Track) time.Time {
 	if track.Time() != nil {
 		return *track.Time()
 	}

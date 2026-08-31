@@ -1,3 +1,5 @@
+// Package lastfm implements core.Player and core.ArtistGetter using the
+// Last.fm API (recent tracks and artist.getInfo).
 package lastfm
 
 import (
@@ -11,12 +13,13 @@ import (
 
 	"github.com/oklookat/teletrack/core"
 	"github.com/oklookat/teletrack/lastfm/lastfmclean"
+	"github.com/oklookat/teletrack/shared"
 	"golang.org/x/time/rate"
 )
 
 const (
-	_artistBioService string = "Wikipedia"
-	_trackLinkService string = "ListenBrainz"
+	_artistBioService = "Last.fm"
+	_trackLinkService = "Last.fm"
 )
 
 var (
@@ -55,27 +58,43 @@ func NewClient(cfg *Config) (*Client, error) {
 	return &Client{
 		HTTP:    &http.Client{Timeout: 10 * time.Second},
 		limiter: rate.NewLimiter(rate.Every(time.Second), 1),
-
-		config: cfg,
+		config:  cfg,
 	}, nil
 }
 
+// Service implements core.ArtistGetter.
+func (*Client) Service() string {
+	return _artistBioService
+}
+
 func (c *Client) do(ctx context.Context, req *http.Request) (*http.Response, error) {
-	if err := c.limiter.Wait(ctx); err != nil {
-		return nil, err
+	if c == nil {
+		return nil, errors.New("client is nil")
+	}
+	if req == nil {
+		return nil, errors.New("request is nil")
+	}
+	if c.limiter != nil {
+		if err := c.limiter.Wait(ctx); err != nil {
+			return nil, err
+		}
 	}
 
 	req = req.WithContext(ctx)
 
+	if c.HTTP == nil {
+		return nil, errors.New("http client is nil")
+	}
+
 	return c.HTTP.Do(req)
 }
 
-// First lang is preferred. Other langs for fallback if first lang doesnt have bio.
-//
-// Langs format:
-//
-// ISO639-2 code (see https://www.loc.gov/standards/iso639-2/php/code_list.php
-func (c *Client) GetArtistInfo(ctx context.Context, artist string, langs []string) (core.ArtistInfoer, error) {
+// GetArtistInfo retrieves bio information using fallback languages.
+func (c *Client) GetArtistInfo(ctx context.Context, artist string, langs []string) (core.ArtistInfo, error) {
+	if c == nil {
+		return nil, errors.New("client is nil")
+	}
+
 	var gotInfo *ArtistFull
 
 	for _, lang := range langs {
@@ -90,27 +109,44 @@ func (c *Client) GetArtistInfo(ctx context.Context, artist string, langs []strin
 	}
 
 	if gotInfo == nil {
-		return nil, errors.New("gotInfo == nil")
+		return nil, errors.New("artist info not found")
 	}
 
-	return newArtistInfo(gotInfo.Artist.URL, lastfmclean.NewCleaner().Clean(gotInfo.Artist.Bio.Summary)), nil
+	summary := ""
+	cleaner := lastfmclean.NewCleaner()
+	if cleaner != nil {
+		summary = cleaner.Clean(gotInfo.Artist.Bio.Summary)
+	} else {
+		summary = gotInfo.Artist.Bio.Summary
+	}
+
+	return newArtistInfo(gotInfo.Artist.URL, summary), nil
 }
 
-func (c *Client) GetPlaying(ctx context.Context) (core.TrackInfoer, error) {
-	resp, err := c.userGetRecentTracks(ctx, new(1), nil, nil, new(true), nil)
+func (c *Client) GetPlaying(ctx context.Context) (core.Track, error) {
+	if c == nil {
+		return nil, errors.New("client is nil")
+	}
+
+	resp, err := c.userGetRecentTracks(ctx, shared.Ptr(1), nil, nil, shared.Ptr(true), nil)
 	if err != nil {
 		return nil, err
 	}
-	if len(resp.Recenttracks.Track) == 0 {
+	if resp == nil || len(resp.Recenttracks.Track) == 0 {
 		return nil, nil
 	}
+
 	track := resp.Recenttracks.Track[0]
+	if track == nil {
+		return nil, errors.New("first track is nil")
+	}
+
 	if err := track.Validate(); err != nil {
 		return nil, err
 	}
 
 	var playingNow bool
-	if track.Attr.Nowplaying != nil {
+	if track.Attr != nil && track.Attr.Nowplaying != nil {
 		playingNow = *track.Attr.Nowplaying
 	}
 
@@ -118,19 +154,27 @@ func (c *Client) GetPlaying(ctx context.Context) (core.TrackInfoer, error) {
 	if len(track.Image) > 0 {
 		biggestImage := track.Image[len(track.Image)-1]
 		urld, err := url.Parse(biggestImage.Text)
-		if err == nil && strings.ToLower(urld.Scheme) == "https" {
+		if err == nil && urld != nil && strings.EqualFold(urld.Scheme, "https") {
 			cover = urld.String()
 		}
 	}
 
-	trackTime := track.Date.ToTime()
+	var trackTime *time.Time
+	if track.Date != nil {
+		trackTime = track.Date.ToTime()
+	}
 	if trackTime == nil {
-		trackTime = new(time.Now())
+		trackTime = shared.Ptr(time.Now())
+	}
+
+	artistName := ""
+	if track.Artist != nil {
+		artistName = track.Artist.Name
 	}
 
 	return &TrackInfo{
 		playing:   playingNow,
-		artist:    track.Artist.Name,
+		artist:    artistName,
 		track:     track.Name,
 		trackLink: track.URL,
 		coverURL:  cover,

@@ -1,4 +1,7 @@
-// written by https://claude.ai
+// Package config loads and persists teletrack configuration from a JSON file
+// and environment variables.
+//
+// Precedence (highest wins): environment variables > config file > defaults.
 package config
 
 import (
@@ -14,8 +17,10 @@ import (
 	"github.com/oklookat/teletrack/cache"
 	"github.com/oklookat/teletrack/lastfm"
 	"github.com/oklookat/teletrack/listenbrainz"
+	"github.com/oklookat/teletrack/renderer/api"
+	"github.com/oklookat/teletrack/renderer/html"
+	"github.com/oklookat/teletrack/renderer/telegram"
 	"github.com/oklookat/teletrack/spotify"
-	"github.com/oklookat/teletrack/telegram"
 )
 
 // Precedence: env vars > config.json file > built-in defaults on C.
@@ -31,6 +36,11 @@ const (
 	ServiceSpotify      Service = "spotify"
 	ServiceLastFm       Service = "lastFm"
 	ServiceListenBrainz Service = "listenBrainz"
+
+	// Output renderers (status destinations).
+	ServiceTelegram Service = "telegram"
+	ServiceHTML     Service = "html"
+	ServiceAPI      Service = "api"
 )
 
 // Env variables not related to Config,
@@ -47,22 +57,26 @@ const (
 var C = &Config{
 	Schema:       "https://github.com/oklookat/teletrack/raw/refs/heads/main/config.schema.json",
 	Telegram:     &telegram.Config{},
+	HTML:         &html.Config{Addr: "127.0.0.1:8787"},
+	API:          api.DefaultConfig(),
 	LastFm:       &lastfm.Config{},
 	Spotify:      &spotify.Config{},
 	ListenBrainz: &listenbrainz.Config{},
 	Players:      []Service{},
 	Bios:         []Service{},
+	Renderers:    []Service{ServiceTelegram},
 	Cache:        cache.DefaultConfig(),
 }
 
 type Config struct {
 	Schema string `json:"$schema"`
 
-	// Render.
+	// Output backends (used when listed in Renderers).
 	Telegram *telegram.Config `json:"telegram"`
-	//
+	HTML     *html.Config     `json:"html,omitempty"`
+	API      *api.Config      `json:"api,omitempty"`
 
-	// Modules.
+	// Modules (players / bios).
 	Spotify      *spotify.Config      `json:"spotify"`      // player
 	LastFm       *lastfm.Config       `json:"lastFm"`       // player + bio
 	ListenBrainz *listenbrainz.Config `json:"listenBrainz"` // player + bio
@@ -71,14 +85,19 @@ type Config struct {
 	Players []Service `json:"players"`
 	Bios    []Service `json:"bios"`
 
-	//
-	Cache *cache.Config
+	// Renderers are status destinations, e.g. ["telegram", "html", "api"].
+	// Updates are pushed to all enabled renderers in parallel.
+	// "api" exposes a standalone HTTP API without a built-in UI.
+	Renderers []Service `json:"renderers"`
 
-	// Internal fields.
+	Cache *cache.Config `json:"cache,omitempty"`
+
+	// path is the file this config was loaded from (or will be written to).
 	path string `json:"-"`
 }
 
-// Boot loads configuration in the following order:
+// Boot loads configuration in the following order and returns the loaded
+// instance (also stored in the package-level C for compatibility):
 //
 //  1. Look for config.json in, in order: current directory, $HOME/.teletrack/,
 //     /etc/teletrack/. The first one found is loaded.
@@ -86,7 +105,9 @@ type Config struct {
 //     values of C to ./config.json.
 //  3. Apply environment variable overrides on top of whatever was loaded.
 //     Env vars always win, regardless of whether a config file was found.
-func Boot(configPath *string) error {
+//
+// Callers should prefer the returned *Config over reading C directly.
+func Boot(configPath *string) (*Config, error) {
 	var (
 		path  string
 		found bool
@@ -101,20 +122,20 @@ func Boot(configPath *string) error {
 
 	if found {
 		if err := loadConfigFile(path); err != nil {
-			return fmt.Errorf("load config file %q: %w", path, err)
+			return nil, fmt.Errorf("load config file %q: %w", path, err)
 		}
 	} else {
 		C.path = _defaultConfigFileName
 		if err := C.Save(); err != nil {
-			return fmt.Errorf("write default config: %w", err)
+			return nil, fmt.Errorf("write default config: %w", err)
 		}
 	}
 
 	if err := applyEnvOverrides(_envPrefix, reflect.ValueOf(C)); err != nil {
-		return fmt.Errorf("apply env overrides: %w", err)
+		return nil, fmt.Errorf("apply env overrides: %w", err)
 	}
 
-	return nil
+	return C, nil
 }
 
 // Save writes the current configuration to disk as indented JSON.
