@@ -565,7 +565,7 @@ The core only depends on interfaces. HTML and API share one API state when both 
 
 ## Development
 
-Requires Go 1.25+.
+Requires Go 1.27+.
 
 ```bash
 go test ./...

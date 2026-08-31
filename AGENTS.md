@@ -7,7 +7,7 @@ Guide for automated coding agents working on this repository.
 **teletrack** is a Go daemon that polls music sources and pushes “now playing” status to one or more outputs (renderers).
 
 - Module: `github.com/oklookat/teletrack`
-- Language: Go 1.25+
+- Language: Go 1.27+
 - Style: [Uber Go Style Guide](https://github.com/uber-go/guide/blob/master/style.md)
 - Docs and comments: English
 
@@ -37,7 +37,7 @@ Core never depends on concrete Spotify/Telegram/HTTP types. It only uses interfa
 ## Packages
 
 | Package | Responsibility |
-|---------|----------------|
+| --------- | ---------------- |
 | `main` | Flags, signals, wiring |
 | `config` | Load/save JSON + env overrides (`TELETRACK_*`) |
 | `loader` | Build players, bios, renderers from config |
@@ -128,7 +128,7 @@ Separate from API/HTML. Implements `core.Renderer` via the messenger adapter. Ke
 ## Useful entry points
 
 | Task | Start here |
-|------|------------|
+| ------ | ------------ |
 | Poll / idle logic | `core/main.go` |
 | Wire new player | `loader/main.go` + new package implementing `core.Player` |
 | Wire new renderer | `loader/renderers.go` + `config.Service*` |
