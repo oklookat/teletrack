@@ -46,11 +46,6 @@ func (d Duration) MarshalJSON() ([]byte, error) {
 	return json.Marshal(d.Duration.String())
 }
 
-// Ptr returns a pointer to v. Useful for optional API parameters.
-func Ptr[T any](v T) *T {
-	return &v
-}
-
 // TrackProgressSupported reports whether both progress and duration are
 // present and the track has a positive length.
 func TrackProgressSupported(progressMs, durationMs *int) bool {

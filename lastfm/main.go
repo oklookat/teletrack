@@ -13,7 +13,6 @@ import (
 
 	"github.com/oklookat/teletrack/core"
 	"github.com/oklookat/teletrack/lastfm/lastfmclean"
-	"github.com/oklookat/teletrack/shared"
 	"golang.org/x/time/rate"
 )
 
@@ -128,7 +127,7 @@ func (c *Client) GetPlaying(ctx context.Context) (core.Track, error) {
 		return nil, errors.New("client is nil")
 	}
 
-	resp, err := c.userGetRecentTracks(ctx, shared.Ptr(1), nil, nil, shared.Ptr(true), nil)
+	resp, err := c.userGetRecentTracks(ctx, new(1), nil, nil, new(true), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +163,7 @@ func (c *Client) GetPlaying(ctx context.Context) (core.Track, error) {
 		trackTime = track.Date.ToTime()
 	}
 	if trackTime == nil {
-		trackTime = shared.Ptr(time.Now())
+		trackTime = new(time.Now())
 	}
 
 	artistName := ""

@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	"github.com/oklookat/teletrack/core"
-	"github.com/oklookat/teletrack/shared"
 	spotifyapi "github.com/zmb3/spotify/v2"
 )
 
@@ -45,8 +44,8 @@ func (p *Player) GetPlaying(ctx context.Context) (core.Track, error) {
 		track:      curPlay.Name,
 		artist:     curPlay.Artist,
 		spotifyId:  curPlay.ID,
-		progressMs: shared.Ptr(curPlay.ProgressMs),
-		durationMs: shared.Ptr(curPlay.DurationMs),
+		progressMs: new(curPlay.ProgressMs),
+		durationMs: new(curPlay.DurationMs),
 		playing:    curPlay.Playing,
 	}
 

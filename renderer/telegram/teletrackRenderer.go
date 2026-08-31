@@ -76,7 +76,7 @@ func newPlayingMessage(ctx context.Context, logger *slog.Logger, msg *core.Playi
 					result.formatProgressBar(progressMs, durationMs),
 					result.formatTime(durationMs),
 				)
-				result.Progress = shared.Ptr(formattedProgress)
+				result.Progress = new(formattedProgress)
 			} else {
 				logger.DebugContext(ctx, "track progress unsupported or out of bounds",
 					slog.Int("progress_ms", progressMs),

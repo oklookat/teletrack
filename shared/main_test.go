@@ -6,15 +6,6 @@ import (
 	"time"
 )
 
-func TestPtr(t *testing.T) {
-	t.Parallel()
-	n := 42
-	p := Ptr(n)
-	if p == nil || *p != 42 {
-		t.Fatalf("Ptr: got %#v", p)
-	}
-}
-
 func TestGenerateTrackID(t *testing.T) {
 	t.Parallel()
 	if GenerateTrackID("", "x") != "" || GenerateTrackID("a", "") != "" {
