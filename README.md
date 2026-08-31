@@ -49,6 +49,8 @@ cd teletrack
 go build -o teletrack .
 ```
 
+Or install automatically on VPS via `Ansible` and [ansiblecfgs](https://github.com/oklookat/ansiblecfgs/tree/v3/playbooks/teletrack).
+
 ## Quick start
 
 Run once to create `config.json`:
