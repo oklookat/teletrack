@@ -16,11 +16,18 @@ import (
 	"time"
 
 	"github.com/oklookat/teletrack/core"
+	"github.com/oklookat/teletrack/shared"
 
 	"golang.org/x/time/rate"
 )
 
+const (
+	_artistBioService string = "Wikipedia"
+	_trackLinkService string = "ListenBrainz"
+)
+
 var (
+	_ua          = fmt.Sprintf("teletrack/%s (oklocate@gmail.com; https://github.com/oklookat/teletrack)", shared.Version)
 	_lbAPIURL, _ = url.Parse("https://api.listenbrainz.org/1/")
 	_mbAPIURL, _ = url.Parse("https://musicbrainz.org/ws/2/")
 	_wdAPIURL, _ = url.Parse("https://www.wikidata.org/w/api.php")
@@ -74,22 +81,19 @@ type Client struct {
 }
 
 // NewClient creates a new ListenBrainz/MusicBrainz client.
-func NewClient(cfg *Config, version string) (*Client, error) {
+func NewClient(cfg *Config) (*Client, error) {
 	if cfg == nil {
 		return nil, errors.New("nil config")
 	}
 	if cfg.Username == "" {
 		return nil, errors.New("username is required")
 	}
-
-	ua := fmt.Sprintf("teletrack/%s (oklocate@gmail.com; https://github.com/oklookat/teletrack)", version)
-
 	return &Client{
 		HTTP:      &http.Client{Timeout: 10 * time.Second},
 		mbLimiter: rate.NewLimiter(rate.Every(time.Second), 1),
 		lbLimiter: rate.NewLimiter(rate.Every(time.Second/3), 1),
 		config:    cfg,
-		userAgent: ua,
+		userAgent: _ua,
 	}, nil
 }
 

@@ -13,34 +13,34 @@ import (
 	"github.com/oklookat/teletrack/core"
 )
 
-type TeletrackMessenger struct {
+type Messenger struct {
 	tg     *TelegramBot
-	render *teletrackRenderer
+	render *renderer
 
 	lastMessageMD5 string
 	logger         *slog.Logger
 }
 
-func NewTeletrackMessenger(tg *TelegramBot) *TeletrackMessenger {
+func NewMessenger(tg *TelegramBot) *Messenger {
 	if tg == nil {
 		return nil
 	}
 
 	// Scope logger to this component with context fields
 	logger := tg.logger.With(
-		slog.String("component", "teletrack_messenger"),
+		slog.String("component", "telegram_messenger"),
 		slog.String("chat_id", tg.cfg.ChatID),
 		slog.Int("message_id", tg.cfg.MessageID),
 	)
 
-	return &TeletrackMessenger{
+	return &Messenger{
 		tg:     tg,
-		render: &teletrackRenderer{},
+		render: newRenderer(logger),
 		logger: logger,
 	}
 }
 
-func (t *TeletrackMessenger) UpdatePlaying(ctx context.Context, msg *core.PlayingMessage) error {
+func (t *Messenger) UpdatePlaying(ctx context.Context, msg *core.PlayingMessage) error {
 	if msg == nil {
 		err := errors.New("nil PlayingMessage provided")
 		t.logger.ErrorContext(ctx, "failed to update playing message", slog.Any("error", err))
@@ -77,7 +77,7 @@ func (t *TeletrackMessenger) UpdatePlaying(ctx context.Context, msg *core.Playin
 	return nil
 }
 
-func (t *TeletrackMessenger) UpdateIdle(ctx context.Context, msg *core.PlayingMessage) error {
+func (t *Messenger) UpdateIdle(ctx context.Context, msg *core.PlayingMessage) error {
 	msgStr := t.render.BuildIdleMessage(ctx, msg)
 
 	params := &bot.EditMessageTextParams{
@@ -110,7 +110,7 @@ func (t *TeletrackMessenger) UpdateIdle(ctx context.Context, msg *core.PlayingMe
 	return nil
 }
 
-func (t *TeletrackMessenger) ReportError(ctx context.Context, err error) {
+func (t *Messenger) ReportError(ctx context.Context, err error) {
 	if err == nil {
 		return
 	}
@@ -134,7 +134,7 @@ func (t *TeletrackMessenger) ReportError(ctx context.Context, err error) {
 	}
 }
 
-func (t *TeletrackMessenger) editMessageText(ctx context.Context, params *bot.EditMessageTextParams) error {
+func (t *Messenger) editMessageText(ctx context.Context, params *bot.EditMessageTextParams) error {
 	if params == nil || params.Text == "" {
 		t.logger.DebugContext(ctx, "skipped message edit: empty params or text")
 		return nil

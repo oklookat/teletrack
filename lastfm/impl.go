@@ -8,16 +8,14 @@ import (
 
 func newArtistInfo(link, bio string) *ArtistInfo {
 	return &ArtistInfo{
-		link:       link,
-		bio:        bio,
-		bioService: "Last.fm",
+		link: link,
+		bio:  bio,
 	}
 }
 
 type ArtistInfo struct {
-	link       string
-	bio        string
-	bioService string
+	link string
+	bio  string
 }
 
 // Link to artist or artist bio on BioService.
@@ -32,7 +30,7 @@ func (a ArtistInfo) Bio() string {
 
 // Example: Last.fm
 func (a ArtistInfo) BioService() string {
-	return a.bioService
+	return _artistBioService
 }
 
 type TrackInfo struct {
@@ -63,7 +61,7 @@ func (t TrackInfo) TrackLink() string {
 	return t.trackLink
 }
 func (t TrackInfo) TrackLinkService() string {
-	return "Last.fm"
+	return _trackLinkService
 }
 func (t TrackInfo) CoverURL() string {
 	return t.coverURL

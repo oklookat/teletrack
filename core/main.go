@@ -39,7 +39,6 @@ type Teletrack struct {
 	sfGroup       singleflight.Group
 
 	messenger Messenger
-	reporter  ErrorReporter
 	logger    *slog.Logger
 
 	mu       sync.RWMutex
@@ -55,12 +54,10 @@ type Teletrack struct {
 }
 
 func New(
-	version string,
 	players []Player,
 	artistGetters []ArtistGetter,
 	c cache.Cache,
 	messenger Messenger,
-	reporter ErrorReporter,
 	logger *slog.Logger,
 ) (*Teletrack, error) {
 	if c == nil {
@@ -76,7 +73,6 @@ func New(
 		artistGetters:  artistGetters,
 		cache:          c,
 		messenger:      messenger,
-		reporter:       reporter,
 		logger:         logger,
 		currentMessage: newPlayingMessage(nil, nil),
 		shutdown:       make(chan struct{}),
@@ -407,11 +403,7 @@ func (t *Teletrack) reportError(ctx context.Context, msg string, err error, attr
 		args = append(args, attr)
 	}
 
-	t.logger.Error(msg, args...)
-
-	if t.reporter != nil {
-		t.reporter.ReportError(ctx, fmt.Errorf("%s: %w", msg, err))
-	}
+	t.logger.ErrorContext(ctx, msg, args...)
 }
 
 func supportsProgress(track TrackInfoer) bool {

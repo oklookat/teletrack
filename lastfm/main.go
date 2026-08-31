@@ -14,7 +14,14 @@ import (
 	"golang.org/x/time/rate"
 )
 
-var _apiURL, _ = url.Parse("https://ws.audioscrobbler.com/2.0/")
+const (
+	_artistBioService string = "Wikipedia"
+	_trackLinkService string = "ListenBrainz"
+)
+
+var (
+	_apiURL, _ = url.Parse("https://ws.audioscrobbler.com/2.0/")
+)
 
 type (
 	RecentTrack struct {

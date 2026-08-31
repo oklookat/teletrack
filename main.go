@@ -15,10 +15,9 @@ import (
 	"github.com/oklookat/teletrack/config"
 	"github.com/oklookat/teletrack/core"
 	"github.com/oklookat/teletrack/loader"
+	"github.com/oklookat/teletrack/shared"
 	"github.com/oklookat/teletrack/telegram"
 )
-
-var version = "v1.0.0-debug"
 
 func main() {
 	if err := run(); err != nil {
@@ -28,7 +27,7 @@ func main() {
 }
 
 func run() error {
-	slog.Info("starting teletrack", "version", version)
+	slog.Info("starting teletrack", "version", shared.Version)
 
 	// Flags
 	configPath := flag.String("c", "", "path to configuration file")
@@ -50,19 +49,19 @@ func run() error {
 	defer stop()
 
 	// Telegram bot initialization
-	tgBot, err := telegram.NewTelegramBot(ctx, stop, version, config.C.Telegram)
+	tgBot, err := telegram.NewTelegramBot(ctx, stop, config.C.Telegram)
 	if err != nil {
 		return fmt.Errorf("start telegram bot: %w", err)
 	}
 
-	players, artistGetters, err := loader.Load(ctx, version)
+	players, artistGetters, err := loader.Load(ctx)
 	if err != nil {
 		return fmt.Errorf("load components: %w", err)
 	}
 
-	tgTeletrack := telegram.NewTeletrackMessenger(tgBot)
+	tgTeletrack := telegram.NewMessenger(tgBot)
 
-	// SQLite cache setup (filepath.Join handles cross-platform path slashes properly)
+	// SQLite cache setup
 	dbPath := filepath.Join(dataDir, "cache.db")
 	cacheDB, err := cache.NewSQLiteCache(dbPath, config.C.Cache, slog.Default())
 	if err != nil {
@@ -74,15 +73,16 @@ func run() error {
 		}
 	}()
 
-	teletrackd, err := core.New(version, players, artistGetters, cacheDB, tgTeletrack, tgTeletrack, slog.Default())
+	tCore, err := core.New(players, artistGetters, cacheDB, tgTeletrack, slog.Default())
 	if err != nil {
-		return fmt.Errorf("create core daemon: %w", err)
+		return fmt.Errorf("create core: %w", err)
 	}
 
-	// Run daemon asynchronously and catch non-cancellation errors
 	errChan := make(chan error, 1)
+
+	// Run daemon asynchronously and catch non-cancellation errors
 	go func() {
-		if err := teletrackd.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		if err := tCore.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			errChan <- err
 		}
 	}()
@@ -92,18 +92,18 @@ func run() error {
 	case <-ctx.Done():
 		slog.Info("shutdown signal received, stopping daemon...")
 	case err := <-errChan:
-		return fmt.Errorf("teletrackd runtime error: %w", err)
+		return fmt.Errorf("core runtime error: %w", err)
 	}
 
-	teletrackd.Stop()
-	slog.Info("teletrack stopped gracefully")
+	tCore.Stop()
+	slog.Info("core stopped gracefully")
 	return nil
 }
 
 func prepareDataDir(flagStatePath string) (string, error) {
 	trueStatePath := "./"
 
-	if envStatePath := os.Getenv("TELETRACK_DATA"); envStatePath != "" {
+	if envStatePath := os.Getenv(config.EnvTeletrackData); envStatePath != "" {
 		trueStatePath = envStatePath
 	} else if flagStatePath != "" {
 		trueStatePath = flagStatePath

@@ -16,6 +16,9 @@ type Messenger interface {
 }
 
 type ArtistGetter interface {
+	// Service name, example: "Last.fm".
+	Service() string
+
 	// First lang is preferred. Other langs for fallback if first lang doesnt have bio.
 
 	// Langs format:

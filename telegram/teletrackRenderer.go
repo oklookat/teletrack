@@ -12,40 +12,40 @@ import (
 	"github.com/oklookat/teletrack/shared"
 )
 
-type teletrackRenderer struct {
+type renderer struct {
 	logger *slog.Logger
 }
 
-func newTeletrackRenderer(logger *slog.Logger) *teletrackRenderer {
+func newRenderer(logger *slog.Logger) *renderer {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &teletrackRenderer{
+	return &renderer{
 		logger: logger.With(slog.String("component", "teletrack_renderer")),
 	}
 }
 
-func (t teletrackRenderer) BuildIdleMessage(ctx context.Context, lastPlaying *core.PlayingMessage) string {
+func (t renderer) BuildIdleMessage(ctx context.Context, lastPlaying *core.PlayingMessage) string {
 	if lastPlaying == nil {
 		t.logger.DebugContext(ctx, "building idle message without last track history")
 	}
 
-	pMsg := newTeletrackPlayingMessage(ctx, t.logger, lastPlaying)
+	pMsg := newPlayingMessage(ctx, t.logger, lastPlaying)
 	return pMsg.BuildIdleMessage()
 }
 
-func (t teletrackRenderer) BuildMessage(ctx context.Context, msg *core.PlayingMessage) string {
+func (t renderer) BuildMessage(ctx context.Context, msg *core.PlayingMessage) string {
 	if msg == nil {
 		t.logger.WarnContext(ctx, "building playing message with nil input")
 	}
 
-	pMsg := newTeletrackPlayingMessage(ctx, t.logger, msg)
+	pMsg := newPlayingMessage(ctx, t.logger, msg)
 	return pMsg.BuildPlayingMessage()
 }
 
 // Time, status, emoji, watermark not empty, even msg == nil.
-func newTeletrackPlayingMessage(ctx context.Context, logger *slog.Logger, msg *core.PlayingMessage) teletrackPlayingMessage {
-	result := teletrackPlayingMessage{
+func newPlayingMessage(ctx context.Context, logger *slog.Logger, msg *core.PlayingMessage) playingMessage {
+	result := playingMessage{
 		Time:    tgText(timeToRuWithSecondsClockEmoji(time.Now())),
 		Status:  "⏸️",
 		coreMsg: msg,
@@ -76,7 +76,7 @@ func newTeletrackPlayingMessage(ctx context.Context, logger *slog.Logger, msg *c
 					result.formatProgressBar(progressMs, durationMs),
 					result.formatTime(durationMs),
 				)
-				result.Progress = stringPtr(formattedProgress)
+				result.Progress = new(formattedProgress)
 			} else {
 				logger.DebugContext(ctx, "track progress unsupported or out of bounds",
 					slog.Int("progress_ms", progressMs),
@@ -118,7 +118,7 @@ func newTeletrackPlayingMessage(ctx context.Context, logger *slog.Logger, msg *c
 	return result
 }
 
-type teletrackPlayingMessage struct {
+type playingMessage struct {
 	Time        string
 	Status      string
 	ArtistTrack string
@@ -131,7 +131,7 @@ type teletrackPlayingMessage struct {
 	coreMsg *core.PlayingMessage
 }
 
-func (t teletrackPlayingMessage) BuildIdleMessage() string {
+func (t playingMessage) BuildIdleMessage() string {
 	var b strings.Builder
 
 	// 12:00 12.12.12
@@ -182,7 +182,7 @@ func (t teletrackPlayingMessage) BuildIdleMessage() string {
 	return strings.TrimSpace(b.String())
 }
 
-func (t teletrackPlayingMessage) BuildPlayingMessage() string {
+func (t playingMessage) BuildPlayingMessage() string {
 	var b strings.Builder
 
 	// time
@@ -227,7 +227,7 @@ func (t teletrackPlayingMessage) BuildPlayingMessage() string {
 	return strings.TrimSpace(b.String())
 }
 
-func (t teletrackPlayingMessage) formatProgressBar(progressMs, durationMs int) string {
+func (t playingMessage) formatProgressBar(progressMs, durationMs int) string {
 	const blocks = 12
 	if durationMs <= 0 {
 		return strings.Repeat("░", blocks)
@@ -241,11 +241,7 @@ func (t teletrackPlayingMessage) formatProgressBar(progressMs, durationMs int) s
 	return fmt.Sprintf("[%s%s]", strings.Repeat("█", progressBlocks), strings.Repeat("░", blocks-progressBlocks))
 }
 
-func (t teletrackPlayingMessage) formatTime(ms int) string {
+func (t playingMessage) formatTime(ms int) string {
 	totalSec := ms / 1000
 	return fmt.Sprintf("%02d:%02d", totalSec/60, totalSec%60)
-}
-
-func stringPtr(s string) *string {
-	return &s
 }

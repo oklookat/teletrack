@@ -33,7 +33,7 @@ func newClient(t *testing.T) *Client {
 	cl, err := NewClient(&Config{
 		Username: "oklookat",
 		Token:    _token,
-	}, "test")
+	})
 	chk(t, err)
 	return cl
 }

@@ -13,8 +13,6 @@ import (
 	"github.com/oklookat/teletrack/spotify"
 )
 
-var _version = "1.0.0"
-
 var clientFactories = map[config.Service]func(context.Context, *config.Config) (any, error){
 	config.ServiceSpotify: func(ctx context.Context, c *config.Config) (any, error) {
 		return spotify.New(ctx, c.Spotify, spotifySaveToken)
@@ -23,13 +21,11 @@ var clientFactories = map[config.Service]func(context.Context, *config.Config) (
 		return lastfm.NewClient(c.LastFm)
 	},
 	config.ServiceListenBrainz: func(ctx context.Context, c *config.Config) (any, error) {
-		return listenbrainz.NewClient(c.ListenBrainz, _version)
+		return listenbrainz.NewClient(c.ListenBrainz)
 	},
 }
 
-func Load(ctx context.Context, version string) ([]core.Player, []core.ArtistGetter, error) {
-	_version = version
-
+func Load(ctx context.Context) ([]core.Player, []core.ArtistGetter, error) {
 	players, err := loadServices[core.Player](ctx, config.C.Players, "player")
 	if err != nil {
 		return nil, nil, err

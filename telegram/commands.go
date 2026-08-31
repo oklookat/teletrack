@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/go-telegram/bot"
+	"github.com/oklookat/teletrack/shared"
 )
 
 // Stop.
@@ -34,7 +35,7 @@ func (VersionCommand) Help() string { return "Shows installed version." }
 func (VersionCommand) Handler(ctx context.Context, b *TelegramBot, args []string) error {
 	_, sendErr := b.bot.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: b.cfg.ServiceChatID,
-		Text:   _version,
+		Text:   shared.Version,
 	})
 	return sendErr
 }

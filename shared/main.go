@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+var Version = "v1.0.0-debug"
+
 type Duration struct {
 	time.Duration
 }

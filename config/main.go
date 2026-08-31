@@ -33,6 +33,13 @@ const (
 	ServiceListenBrainz Service = "listenBrainz"
 )
 
+// Env variables not related to Config,
+// but related to other settings
+const (
+	// Path to directory with db, and other.
+	EnvTeletrackData string = "TELETRACK_DATA"
+)
+
 // C holds the global, process-wide configuration instance.
 //
 // It is pre-populated with sane defaults so that a config file / env

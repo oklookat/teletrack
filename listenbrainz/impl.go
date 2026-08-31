@@ -18,6 +18,10 @@ func NewArtistGetter(client *Client) core.ArtistGetter {
 	}
 }
 
+func (ArtistGetter) Service() string {
+	return _artistBioService
+}
+
 func (g *ArtistGetter) GetArtistInfo(
 	ctx context.Context,
 	artist string,
@@ -30,7 +34,7 @@ func newArtistInfo(link, bio string) *ArtistInfo {
 	return &ArtistInfo{
 		link:       link,
 		bio:        bio,
-		bioService: "Wikipedia",
+		bioService: _artistBioService,
 	}
 }
 
@@ -83,7 +87,7 @@ func (t TrackInfo) TrackLink() string {
 	return t.trackLink
 }
 func (t TrackInfo) TrackLinkService() string {
-	return "MusicBrainz"
+	return _trackLinkService
 }
 func (t TrackInfo) CoverURL() string {
 	return t.coverURL

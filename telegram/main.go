@@ -14,8 +14,6 @@ import (
 	"github.com/go-telegram/bot/models"
 )
 
-var _version = "unknown"
-
 type Commander interface {
 	Command() string
 	Help() string
@@ -33,9 +31,7 @@ type TelegramBot struct {
 }
 
 // NewTelegramBot initializes and starts the bot
-func NewTelegramBot(ctx context.Context, cancel context.CancelFunc, version string, cfg *Config) (*TelegramBot, error) {
-	_version = version
-
+func NewTelegramBot(ctx context.Context, cancel context.CancelFunc, cfg *Config) (*TelegramBot, error) {
 	tg := &TelegramBot{
 		cfg:      cfg,
 		ready:    cfg.UserID > 0 && len(cfg.ServiceChatID) > 0,
