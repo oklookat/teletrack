@@ -64,8 +64,9 @@ type RankAttr struct {
 }
 
 // TrackAttr represents the @attr object of a Last.fm track.
+// Last.fm returns nowplaying as the string "true" (not a JSON boolean).
 type TrackAttr struct {
-	Nowplaying *bool `json:"nowplaying,omitempty"`
+	Nowplaying *LastFmBool `json:"nowplaying,omitempty"`
 }
 
 type LastFmBool bool
@@ -138,11 +139,25 @@ func (e ApiError) Error() string {
 }
 
 // Artist represents an artist in Last.fm.
+// With extended=1 the API returns name/url/mbid/image.
+// Without extended it often returns only mbid and #text (the name).
 type Artist struct {
 	URL   string  `json:"url"`
 	Name  string  `json:"name"`
+	Text  string  `json:"#text"` // fallback name when extended=0
 	Image []Image `json:"image"`
 	Mbid  string  `json:"mbid"`
+}
+
+// DisplayName returns the best available artist name.
+func (a *Artist) DisplayName() string {
+	if a == nil {
+		return ""
+	}
+	if name := strings.TrimSpace(a.Name); name != "" {
+		return name
+	}
+	return strings.TrimSpace(a.Text)
 }
 
 // Validate checks whether the Artist contains required fields.
@@ -151,12 +166,8 @@ func (a *Artist) Validate() error {
 		return errors.New("artist is nil")
 	}
 
-	if strings.TrimSpace(a.Name) == "" {
+	if a.DisplayName() == "" {
 		return errors.New("artist name is required")
-	}
-
-	if strings.TrimSpace(a.URL) == "" {
-		return errors.New("artist URL is required")
 	}
 
 	return nil
@@ -191,7 +202,7 @@ func (t *Track) IsNowPlaying() bool {
 		return false
 	}
 
-	return *t.Attr.Nowplaying
+	return bool(*t.Attr.Nowplaying)
 }
 
 // Validate checks whether the Track contains required fields.
@@ -213,6 +224,14 @@ func (t *Track) Validate() error {
 	}
 
 	return nil
+}
+
+// ArtistName returns the track's artist name safely.
+func (t *Track) ArtistName() string {
+	if t == nil || t.Artist == nil {
+		return ""
+	}
+	return t.Artist.DisplayName()
 }
 
 // UserGetRecentTracksResponse represents the response from user.getrecenttracks.

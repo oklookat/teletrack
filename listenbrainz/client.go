@@ -50,8 +50,11 @@ type Config struct {
 	Token string `json:"token"`
 }
 
+// Validate checks that required config is present.
+// Token is optional for read-only endpoints (listens / playing-now);
+// it is required for writes and for /metadata/lookup.
 func (c Config) Validate() bool {
-	return c.Username != "" && c.Token != ""
+	return c.Username != ""
 }
 
 type retryPolicy struct {

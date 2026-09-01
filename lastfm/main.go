@@ -127,7 +127,9 @@ func (c *Client) GetPlaying(ctx context.Context) (core.Track, error) {
 		return nil, errors.New("client is nil")
 	}
 
-	resp, err := c.userGetRecentTracks(ctx, new(1), nil, nil, new(true), nil)
+	limit := 1
+	extended := true
+	resp, err := c.userGetRecentTracks(ctx, &limit, nil, nil, &extended, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -144,10 +146,7 @@ func (c *Client) GetPlaying(ctx context.Context) (core.Track, error) {
 		return nil, err
 	}
 
-	var playingNow bool
-	if track.Attr != nil && track.Attr.Nowplaying != nil {
-		playingNow = *track.Attr.Nowplaying
-	}
+	playingNow := track.IsNowPlaying()
 
 	var cover string
 	if len(track.Image) > 0 {
@@ -163,17 +162,13 @@ func (c *Client) GetPlaying(ctx context.Context) (core.Track, error) {
 		trackTime = track.Date.ToTime()
 	}
 	if trackTime == nil {
-		trackTime = new(time.Now())
-	}
-
-	artistName := ""
-	if track.Artist != nil {
-		artistName = track.Artist.Name
+		now := time.Now()
+		trackTime = &now
 	}
 
 	return &TrackInfo{
 		playing:   playingNow,
-		artist:    artistName,
+		artist:    track.ArtistName(),
 		track:     track.Name,
 		trackLink: track.URL,
 		coverURL:  cover,

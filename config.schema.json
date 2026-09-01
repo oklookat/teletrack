@@ -227,16 +227,22 @@
                     "properties": {
                         "allowedOrigins": {
                             "type": "array",
-                            "items": { "type": "string" },
+                            "items": {
+                                "type": "string"
+                            },
                             "description": "Allowed Origin values. Use [\"*\"] to allow any origin."
                         },
                         "allowedMethods": {
                             "type": "array",
-                            "items": { "type": "string" }
+                            "items": {
+                                "type": "string"
+                            }
                         },
                         "allowedHeaders": {
                             "type": "array",
-                            "items": { "type": "string" }
+                            "items": {
+                                "type": "string"
+                            }
                         },
                         "allowCredentials": {
                             "type": "boolean",

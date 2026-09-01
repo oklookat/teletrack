@@ -74,30 +74,48 @@ func (t *TrackInfo) ID() string {
 	return t.id
 }
 
-func (t TrackInfo) Playing() bool {
+func (t *TrackInfo) Playing() bool {
+	if t == nil {
+		return false
+	}
 	return t.playing
 }
-func (t TrackInfo) Artist() string {
+func (t *TrackInfo) Artist() string {
+	if t == nil {
+		return ""
+	}
 	return t.artist
 }
-func (t TrackInfo) Track() string {
+func (t *TrackInfo) Track() string {
+	if t == nil {
+		return ""
+	}
 	return t.track
 }
-func (t TrackInfo) TrackLink() string {
+func (t *TrackInfo) TrackLink() string {
+	if t == nil {
+		return ""
+	}
 	return t.trackLink
 }
-func (t TrackInfo) TrackLinkService() string {
+func (t *TrackInfo) TrackLinkService() string {
 	return _trackLinkService
 }
-func (t TrackInfo) CoverURL() string {
+func (t *TrackInfo) CoverURL() string {
+	if t == nil {
+		return ""
+	}
 	return t.coverURL
 }
-func (t TrackInfo) ProgressMs() *int {
+func (t *TrackInfo) ProgressMs() *int {
 	return nil
 }
-func (t TrackInfo) DurationMs() *int {
+func (t *TrackInfo) DurationMs() *int {
 	return nil
 }
-func (t TrackInfo) Time() *time.Time {
+func (t *TrackInfo) Time() *time.Time {
+	if t == nil {
+		return nil
+	}
 	return t.time
 }

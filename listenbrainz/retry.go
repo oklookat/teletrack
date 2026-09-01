@@ -24,11 +24,14 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 
 func isRetryableStatus(code int) bool {
 	switch code {
-	case http.StatusTooManyRequests, http.StatusBadGateway,
-		http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+	case http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout:
 		return true
 	default:
-		return false
+		return code >= 500
 	}
 }
 
